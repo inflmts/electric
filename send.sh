@@ -1,38 +1,33 @@
-#!/bin/sh
-# send to phone
+#!/usr/bin/env bash
+# sync music library to an MTP device
 #
-# A simple script for sending music files to my (FUSE-mounted) phone.
+# A simple script for syncing the music library to an MTP device.
 #
-# Dependencies:
-#   - rsync
+# Requirements:
+#   - aft-mtp-cli (from android-file-transfer)
 #
 
-echo() { printf '%s\n' "$1"; }
-diag() { printf >&2 '%s\n' "$1"; }
-warn() { printf >&2 'warning: %s\n' "$1"; }
-err() { printf >&2 'error: %s\n' "$1"; }
-die() { printf >&2 'error: %s\n' "$1"; exit 1; }
+set -ueo pipefail
+
+echo() { printf '%s\n' "$*"; }
+diag() { printf >&2 '%s\n' "$*"; }
+warn() { printf >&2 'warning: %s\n' "$*"; }
+err() { printf >&2 'error: %s\n' "$*"; }
 
 usage() {
-  cat <<\USAGE
-usage: send.sh <src> <dest>
+  cat >&2 <<EOF
+usage: send.sh [<options>...]
 
-Send music files to a phone.
+Sync the music library to an MTP device.
 
-options:
+Options:
   --dry     dry run, only show what would happen
-  --prune   delete old files
-USAGE
+EOF
 }
 
 dry=
-delete=
-while [ "$#" -gt 0 ]; do
+while (( $# > 0 )); do
   case $1 in
-    --)
-      shift
-      break
-      ;;
     --help)
       usage
       exit 0
@@ -40,32 +35,58 @@ while [ "$#" -gt 0 ]; do
     --dry)
       dry=1
       ;;
-    --prune)
-      delete=1
-      ;;
-    -*)
-      die "invalid option: $1"
-      ;;
     *)
-      break
+      err "invalid option: $1"
+      exit 1
       ;;
   esac
   shift
 done
 
-if [ "$#" -ne 2 ]; then
-  usage >&2
+manifest_file=manifest.txt
+dest=/Music/electric
+dest_manifest_file="$dest/.manifest.txt"
+
+declare -A MANIFEST=()
+
+diag 'Retrieving manifest...'
+remote_manifest_file=$(mktemp /tmp/manifest.XXXXXX)
+trap 'rm -f "$remote_manifest_file"' EXIT HUP INT QUIT TERM
+
+if output=$(aft-mtp-cli "get \"$dest_manifest_file\" \"$remote_manifest_file\"" 2>&1); then
+  while read -r id check; do
+    MANIFEST[$id]=$check
+  done < "$remote_manifest_file"
+elif [[ $output != *'could not find'* ]]; then
+  err "aft-mtp-cli failed"
+  diag "$output"
   exit 1
 fi
 
-src=$1
-dest=$2
+rm "$remote_manifest_file"
+trap - EXIT HUP INT QUIT TERM
 
-# -i              itemize output
-# --update        only send newer files
-# --size-only     ignore times, because mtimes is iffy on mtp mount.
-# --inplace       rename tends to fail for some reason
-rsync \
-  ${dry:+--dry-run} ${delete:+--delete} \
-  -i --update --inplace --dirs --include '/*.mp3' --exclude '*' \
-  -- "$src/" "$dest"
+send=()
+if [[ -e "$manifest_file" ]]; then
+  while read -r id check; do
+    if [[ ! -v MANIFEST[$id] ]] || [[ ${MANIFEST[$id]} != "$check" ]]; then
+      MANIFEST[$id]=$check
+      send+=("$id")
+    fi
+  done < "$manifest_file"
+fi
+
+if (( ${#send[@]} > 0 )); then
+  args=()
+  for id in "${send[@]}"; do
+    args+=("put \"files/$id.mp3\" \"$dest/$id.mp3\"")
+  done
+  args+=("put \"$manifest_file\" \"$dest_manifest_file\"")
+  if [[ $dry ]]; then
+    printf '%s\n' "${args[@]}"
+  else
+    aft-mtp-cli >&2 "${args[@]}"
+  fi
+else
+  diag "Nothing to do."
+fi

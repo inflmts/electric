@@ -4,19 +4,30 @@ The InfiniteLimits EDM library.
 
 Daniel Li <inflmts@gmail.com>
 
-All songs are located in the `store` directory. Each filename is in the form
+Song files are located in the `files` directory. Each filename is in the form
 `<artist>.<title>.mp3`, where `<artist>` and `<title>` are identifiers
 representing the artist and title, respectively, using only the characters
 `0-9`, `a-z`, and `-`.
 
-## tags.sh
+## tag.sh
 
-`tags.sh` is a simple autotagger that tags the mp3 files with a title and artist
-based on filename. It requires `id3v2` to be installed. To use, specify the
-directory containing the mp3 files as an argument:
+`tag.sh` is the library autotagger. It takes information from `songs.txt` and
+`artists.txt` to tag each music file with the appropriate song, artist, and
+album name. It also removes any other metadata in the file. The identifiers in
+these metadata files are the same as those used in the song filenames.
+
+`tag.sh` can automatically populate these files with songs and artists that have
+not been added yet. To do this, run `tag.sh` with the `--update-metadata`
+option:
 
 ```
-./tags.sh store
+./tag.sh --update-metadata
 ```
 
-Run `./tags.sh --help` for more options.
+When sufficient information is provided in the metadata files, `tag.sh` can be
+used to tag the music files with the defined song, artist, and album names. To
+do this, run `tag.sh` without arguments:
+
+```
+./tag.sh
+```
