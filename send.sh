@@ -7,33 +7,88 @@
 #   - aft-mtp-cli (from android-file-transfer)
 #
 
-set -ueo pipefail
+set -ue
+LC_COLLATE=C
+LC_CTYPE=C
+ifs=$IFS
+
+dry=
 
 echo() { printf '%s\n' "$*"; }
-diag() { printf >&2 '%s\n' "$*"; }
+msg() { printf >&2 '%s\n' "$*"; }
 warn() { printf >&2 'warning: %s\n' "$*"; }
 err() { printf >&2 'error: %s\n' "$*"; }
 
+generate_args() {
+  local group="$1"
+  local dest="$2"
+
+  # load manifest
+  local manifest_file="manifest-$group.txt"
+  local -A manifest=()
+  local -a manifest_ids=()
+  local id stat title artist album checksum
+  while IFS=: read -r id stat title artist album checksum; do
+    manifest[$id]=$checksum
+    manifest_ids+=("$id")
+  done < "$manifest_file"
+
+  # get file list from device
+  IFS=$'\n' ; set -f
+  local output
+  local -a dest_files
+  if output=$(aft-mtp-cli "ls \"$dest\"" 2>&1); then
+    dest_files=($(sed '1d; s/.* //' <<< "$output" \
+      | LC_COLLATE=C LC_CTYPE=C sort -u))
+  elif [[ $output = *'could not find'* ]]; then
+    dest_files=()
+  else
+    err "aft-mtp-cli failed:"
+    msg "$output"
+    return 1
+  fi
+
+  local dest_file
+  for dest_file in "${dest_files[@]}"; do
+    if [[ $dest_file =~ [0-9a-z-]+\.[0-9a-z-]+\.[[:xdigit:]]{32}\.mp3 ]]; then
+      id=${dest_file%.mp3}
+      checksum=${id##*.}
+      id=${id%.*}
+      if [[ -v manifest[$id] ]] && [[ ${manifest[$id]} = "$checksum" ]]; then
+        unset "manifest[$id]"
+        continue
+      fi
+    fi
+    remove_args+=("rm \"$dest/$dest_file\"")
+  done
+
+  for id in "${manifest_ids[@]}"; do
+    if [[ -v manifest[$id] ]]; then
+      send_args+=("put \"$group/$id.mp3\" \"$dest/$id.${manifest[$id]}.mp3\"")
+    fi
+  done
+}
+
 usage() {
-  cat >&2 <<EOF
+  cat <<EOF
 usage: send.sh [<options>...]
 
 Sync the music library to an MTP device.
 
 Options:
-  --dry     dry run, only show what would happen
+  --dry         dry run
+  --help        show this help
 EOF
 }
 
-dry=
-while (( $# > 0 )); do
+while [[ $# -gt 0 ]]; do
   case $1 in
+    --dry)
+      dry=1
+      ;;
     --help)
       usage
       exit 0
-      ;;
-    --dry)
-      dry=1
       ;;
     *)
       err "invalid option: $1"
@@ -43,50 +98,21 @@ while (( $# > 0 )); do
   shift
 done
 
-manifest_file=manifest.txt
-dest=/Music/electric
-dest_manifest_file="$dest/.manifest.txt"
+send_args=()
+remove_args=()
 
-declare -A MANIFEST=()
+generate_args main /Music/electric
+generate_args extra /Music/electric-extra
 
-diag 'Retrieving manifest...'
-remote_manifest_file=$(mktemp /tmp/manifest.XXXXXX)
-trap 'rm -f "$remote_manifest_file"' EXIT HUP INT QUIT TERM
+if [[ ${#send_args[@]} -gt 0 ]] || [[ ${#remove_args[@]} -gt 0 ]]; then
+  args=('cd /Music' 'mkpath electric' 'mkpath electric-extra'
+    "${send_args[@]}" "${remove_args[@]}")
 
-if output=$(aft-mtp-cli "get \"$dest_manifest_file\" \"$remote_manifest_file\"" 2>&1); then
-  while read -r id check; do
-    MANIFEST[$id]=$check
-  done < "$remote_manifest_file"
-elif [[ $output != *'could not find'* ]]; then
-  err "aft-mtp-cli failed"
-  diag "$output"
-  exit 1
-fi
-
-rm "$remote_manifest_file"
-trap - EXIT HUP INT QUIT TERM
-
-send=()
-if [[ -e "$manifest_file" ]]; then
-  while read -r id check; do
-    if [[ ! -v MANIFEST[$id] ]] || [[ ${MANIFEST[$id]} != "$check" ]]; then
-      MANIFEST[$id]=$check
-      send+=("$id")
-    fi
-  done < "$manifest_file"
-fi
-
-if (( ${#send[@]} > 0 )); then
-  args=()
-  for id in "${send[@]}"; do
-    args+=("put \"files/$id.mp3\" \"$dest/$id.mp3\"")
-  done
-  args+=("put \"$manifest_file\" \"$dest_manifest_file\"")
   if [[ $dry ]]; then
     printf '%s\n' "${args[@]}"
   else
-    aft-mtp-cli >&2 "${args[@]}"
+    aft-mtp-cli "${args[@]}"
   fi
 else
-  diag "Nothing to do."
+  msg "Nothing to do."
 fi

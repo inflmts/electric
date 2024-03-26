@@ -1,4 +1,3 @@
-/files
-/songs.txt
-/artists.txt
-/manifest.txt
+/main
+/extra
+/manifest-*.txt

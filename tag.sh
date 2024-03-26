@@ -3,45 +3,247 @@
 #
 # Requirements:
 #   - bash
-#   - stat (coreutils)
 #   - ffmpeg
 #
 
-set -ueo pipefail
+set -ue
 shopt -s nullglob
-export LC_COLLATE=C
-export LC_CTYPE=C
+LC_COLLATE=C
+LC_CTYPE=C
+ifs=$IFS
 
 echo() { printf '%s\n' "$*"; }
-diag() { printf >&2 '%s\n' "$*"; }
+msg() { printf >&2 '%s\n' "$*"; }
 warn() { printf >&2 'warning: %s\n' "$*"; }
 err() { printf >&2 'error: %s\n' "$*"; }
 
+get_song_info() {
+  local id="$1" group="$2"
+  local song_id="${id#*.}"
+  local artist_id="${id%%.*}"
+
+  title=${song_id//-/ }
+  title=${title^^}
+
+  artist=${artist_id//-/ }
+  artist=${artist^^}
+
+  case $group in
+    main) album="Electric" ;;
+    extra) album="Electric Extra" ;;
+    *) err "invalid group '$group'"; exit 1 ;;
+  esac
+
+  # special cases
+
+  title=${title/% LOOP/ (LOOP)}
+  title=${title/% VIP/ (VIP)}
+
+  case $artist_id in
+    killer-fx)
+      artist="KILLER-FX"
+      ;;
+    ex-lyd)
+      artist="EX-LYD"
+      ;;
+  esac
+
+  case $id in
+    au5.moonland-derpcat-remix)
+      title="MOONLAND (DERPCAT REMIX)"
+      ;;
+    camellia.1f1e33)
+      title="#1f1E33"
+      ;;
+    camellia.mystery-circles-ultra-uufo)
+      title="MYSTERY CIRCLES ULTRA / U.U.F.O."
+      ;;
+    camellia.tera-io)
+      title="TERA I/O"
+      ;;
+    creo.showdown)
+      album="InfiniteLimits Official Theme Song"
+      ;;
+    illenium.dont-give-up-on-me)
+      title="DON'T GIVE UP ON ME"
+      ;;
+    redsoul92.if-youd-only-listened-for-a-while)
+      title="IF YOU'D ONLY LISTENED FOR A WHILE"
+      ;;
+    teminite.goin-in)
+      title="GOIN' IN"
+      ;;
+    teminite.party-like-its-1923)
+      title="PARTY LIKE IT'S 1923"
+      ;;
+  esac
+}
+
+update_group() {
+  local group="$1"
+  local manifest_file="manifest-$group.txt"
+
+  # get a list of songs
+  local ids files basename
+  ids=()
+  files=()
+  for file in "$group"/*; do
+    basename=${file#*/}
+    if [[ $basename = +([0-9a-z-]).+([0-9a-z-]).mp3 ]]; then
+      ids+=("${basename%.mp3}")
+      files+=("$file")
+    fi
+  done
+
+  # stat files
+  local stats
+  stats=($(stat -c %s.%Y "${files[@]}"))
+
+  # generate manifest
+  local manifest title artist album
+  manifest=()
+  for (( i=0; i<${#ids[@]}; ++i )); do
+    get_song_info "${ids[i]}" "$group"
+    manifest+=("${ids[i]}:${stats[i]}:$title:$artist:$album")
+  done
+
+  local need_write_manifest=
+  local retag retag_files i get_next
+  local old_id old_stat old_title old_artist old_album old_checksum
+
+  if [[ -e "$manifest_file" ]]; then
+    retag=()
+    retag_files=()
+    i=0
+    get_next=1
+    while [[ $i -lt ${#ids[@]} ]]; do
+      if [[ $get_next ]]; then
+        if ! IFS=: read -r old_id old_stat old_title old_artist old_album old_checksum; then
+          # add remaining files
+          while [[ $i -lt ${#ids[@]} ]]; do
+            retag+=("$i")
+            (( ++i ))
+          done
+          break
+        fi
+        get_next=
+      fi
+
+      id="${manifest[i]%%:*}"
+      if [[ "$old_id" < "$id" ]]; then
+        # old entry
+        msg "Pruning $old_id"
+        get_next=1
+        need_write_manifest=1
+        continue
+      fi
+      if [[ "$old_id" = "$id" ]]; then
+        get_next=1
+      fi
+      if [[ "$old_id:$old_stat:$old_title:$old_artist:$old_album" = "${manifest[i]}" ]]; then
+        # no change
+        manifest[i]+=":$old_checksum"
+      else
+        retag+=("$i")
+        retag_files+=("$group/$id.mp3")
+      fi
+      (( ++i ))
+    done < "$manifest_file"
+  else
+    for (( i=0; i<${#ids[@]}; ++i )); do
+      retag+=("$i")
+    done
+    retag_files=("${files[@]}")
+  fi
+
+  # tag files
+  local id stat title artist album file
+  for i in "${retag[@]}"; do
+    IFS=: ; set -f
+    set -- ${manifest[i]}
+    IFS=$ifs ; set +f
+    id=$1 stat=$2 title=$3 artist=$4 album=$5
+    file="$group/$id.mp3"
+
+    msg "Tagging $id ($artist - $title - $album)"
+#   if [[ -z $dry ]]; then
+#     ffmpeg -y -hide_banner -loglevel warning \
+#       -i "$file" \
+#       -codec copy \
+#       -map 0:a \
+#       -map_metadata -1 \
+#       -metadata title="$title" \
+#       -metadata artist="$artist" \
+#       -metadata album="$album" \
+#       -bitexact \
+#       -f mp3 "$file.tmp"
+#     mv "$file.tmp" "$file"
+#   fi
+  done
+
+  # if any files were tagged, update the manifest
+  if [[ ${#retag[@]} > 0 ]]; then
+    msg "Getting updated file information..."
+
+    if [[ -z $dry ]]; then
+      stats=($(stat -c %s.%Y "${retag_files[@]}"))
+      checksums=($(md5sum "${retag_files[@]}" | cut -d ' ' -f 1))
+
+      # update manifest
+      j=0
+      for i in "${retag[@]}"; do
+        IFS=: ; set -f
+        set -- ${manifest[i]}
+        IFS=$ifs ; set +f
+        file=$1 title=$3 artist=$4 album=$5
+
+        manifest[$i]="$file:${stats[j]}:$title:$artist:$album:${checksums[j]}"
+        (( ++j ))
+      done
+    fi
+
+    need_write_manifest=1
+  fi
+
+  if [[ $need_write_manifest ]]; then
+    msg "Updating manifest..."
+    if [[ $show_manifest ]]; then
+      printf '%s\n' "${manifest[@]}"
+    fi
+    if [[ -z $dry ]]; then
+      printf '%s\n' "${manifest[@]}" > "$manifest_file"
+    fi
+    something_done=1
+  fi
+}
+
 usage() {
-  cat >&2 <<EOF
-usage: tag.sh
-   or: tag.sh --update-metadata
+  cat <<EOF
+usage: tag.sh [<options>...]
 
 Electric music library autotagger.
+
+Options:
+  --dry             dry run
+  --show-manifest   print the updated manifest when done
+  --help            show this help
 EOF
 }
 
-manifest_file=manifest.txt
-song_metadata_file=songs.txt
-artist_metadata_file=artists.txt
+dry=
+show_manifest=
 
-declare -a SONG_IDS
-declare -A SONG_TITLES ARTIST_NAMES MANIFEST
-
-func=update_tags
-while (( $# > 0 )); do
+while [[ $# -gt 0 ]]; do
   case $1 in
+    --dry)
+      dry=1
+      ;;
+    --show-manifest)
+      show_manifest=1
+      ;;
     --help)
       usage
       exit 0
-      ;;
-    -M|--update-metadata)
-      func=update_metadata
       ;;
     *)
       err "invalid option: $1"
@@ -51,217 +253,11 @@ while (( $# > 0 )); do
   shift
 done
 
-load_song_ids() {
-  local file
-  SONG_IDS=()
-  for file in files/*; do
-    file=${file##*/}
-    if [[ $file = +([0-9a-z-]).+([0-9a-z-]).mp3 ]]; then
-      SONG_IDS+=("${file%.mp3}")
-    fi
-  done
-}
+something_done=
 
-load_song_metadata() {
-  local ln id title
-  SONG_TITLES=()
-  [[ -e "$song_metadata_file" ]] || return 0
+update_group main
+update_group extra
 
-  ln=1
-  while read -r id; do
-    if [[ $id != ::+([0-9a-z-]).+([0-9a-z-]) ]]; then
-      err "failed to load song metadata: invalid header at line $ln"
-      return 1
-    fi
-    id=${id#::}
-    (( ++ln ))
-
-    if ! read -r title; then
-      err "failed to load song metadata: unexpected end of file"
-      return 1
-    fi
-    if [[ $title = *[a-z]* ]]; then
-      err "song titles may only contain uppercase letters ($id line $ln)"
-      return 1
-    fi
-    SONG_TITLES[$id]=$title
-    (( ++ln ))
-  done < "$song_metadata_file"
-}
-
-load_artist_metadata() {
-  local ln id name
-  ARTIST_NAMES=()
-  [[ -e "$artist_metadata_file" ]] || return 0
-
-  ln=1
-  while read -r id; do
-    if [[ $id != ::+([0-9a-z-]) ]]; then
-      err "failed to load artist metadata: invalid header at line $ln"
-      return 1
-    fi
-    id=${id#::}
-    (( ++ln ))
-
-    if ! read -r name; then
-      err "failed to load artist metadata: unexpected end of file"
-      return 1
-    fi
-    if [[ $name = *[a-z]* ]]; then
-      err "artist names may only contain uppercase letters ($id line $ln)"
-      return 1
-    fi
-    ARTIST_NAMES[$id]=$name
-    (( ++ln ))
-  done < "$artist_metadata_file"
-}
-
-load_manifest() {
-  local id check
-  MANIFEST=()
-  [[ -e "$manifest_file" ]] || return 0
-
-  while read -r id check; do
-    MANIFEST[$id]=$check
-  done < "$manifest_file"
-}
-
-update_metadata() {
-  local id title name
-  local song_metadata_updated artist_metadata_updated
-
-  load_song_ids
-  load_song_metadata
-  load_artist_metadata
-
-  song_metadata_updated=
-  for id in "${SONG_IDS[@]}"; do
-    if [[ ! -v SONG_TITLES[$id] ]]; then
-      title=${id#*.}
-      title=${title//-/ }
-      title=${title^^}
-      SONG_TITLES[$id]=$title
-      diag "Added song: $id ($title)"
-      song_metadata_updated=1
-    fi
-  done
-
-  artist_metadata_updated=
-  for id in "${SONG_IDS[@]}"; do
-    id=${id%%.*}
-    if [[ ! -v ARTIST_NAMES[$id] ]]; then
-      name=${id//-/ }
-      name=${name^^}
-      ARTIST_NAMES[$id]=$name
-      diag "Added artist: $id ($name)"
-      artist_metadata_updated=1
-    fi
-  done
-
-  if [[ $song_metadata_updated ]]; then
-    diag "Writing song metadata..."
-    printf '%s\n' "${!SONG_TITLES[@]}" | sort | while read -r id; do
-      echo "::$id"
-      echo "    ${SONG_TITLES[$id]}"
-    done > "$song_metadata_file.tmp"
-    mv "$song_metadata_file.tmp" "$song_metadata_file"
-  else
-    diag "Song metadata up to date."
-  fi
-
-  if [[ $artist_metadata_updated ]]; then
-    diag "Writing artist metadata..."
-    printf '%s\n' "${!ARTIST_NAMES[@]}" | sort | while read -r id; do
-      echo "::$id"
-      echo "    ${ARTIST_NAMES[$id]}"
-    done > "$artist_metadata_file.tmp"
-    mv "$artist_metadata_file.tmp" "$artist_metadata_file"
-  else
-    diag "Artist metadata up to date."
-  fi
-}
-
-update_tags() {
-  local files stats retag
-  local i id title artist album check file
-
-  load_song_ids
-  load_song_metadata
-  load_artist_metadata
-  load_manifest
-
-  # Check for insufficient metadata
-  for id in "${SONG_IDS[@]}"; do
-    artist_id=${id%%.*}
-    if [[ ! -v SONG_TITLES[$id] ]]; then
-      err "song has no title: $id"
-      return 1
-    fi
-    if [[ ! -v ARTIST_NAMES[$artist_id] ]]; then
-      err "artist has no name: $artist_id"
-      return 1
-    fi
-  done
-
-  # Stat files
-  files=("${SONG_IDS[@]/#/files/}")
-  files=("${files[@]/%/.mp3}")
-  stats=($(stat -c '%s:%Y' "${files[@]}"))
-
-  # Tag files
-  retag=()
-  i=0
-  for id in "${SONG_IDS[@]}"; do
-    title=${SONG_TITLES[$id]}
-    artist=${ARTIST_NAMES[${id%%.*}]}
-    album='/Electric/'
-    check="${artist// /_}:${title// /_}:${album// /_}:${stats[i++]}"
-
-    if [[ -v MANIFEST[$id] ]] && [[ ${MANIFEST[$id]} = "$check" ]]; then
-      : # skip
-    else
-      diag " [tag] $artist - $title"
-      file="files/$id.mp3"
-      ffmpeg -y -hide_banner -loglevel warning \
-        -i "$file" \
-        -codec copy \
-        -map 0:a \
-        -map_metadata -1 \
-        -metadata title="$title" \
-        -metadata artist="$artist" \
-        -metadata album="$album" \
-        -bitexact \
-        -f mp3 "$file.tmp"
-      mv "$file.tmp" "$file"
-      retag+=("$id")
-    fi
-  done
-
-  # If any files were tagged, update the manifest
-  if (( ${#retag[@]} > 0 )); then
-    diag "Updating manifest..."
-
-    # Stat tagged files
-    files=("${retag[@]/#/files/}")
-    files=("${files[@]/%/.mp3}")
-    stats=($(stat -c '%s:%Y' "${files[@]}"))
-
-    # Update manifest entries for tagged files
-    i=0
-    for id in "${retag[@]}"; do
-      title=${SONG_TITLES[$id]}
-      artist=${ARTIST_NAMES[${id%%.*}]}
-      album='/Electric/'
-      check="${artist// /_}:${title// /_}:${album// /_}:${stats[i++]}"
-      MANIFEST[$id]=$check
-    done
-
-    # Write manifest
-    for id in "${SONG_IDS[@]}"; do
-      echo "$id ${MANIFEST[$id]}"
-    done > "$manifest_file.tmp"
-    mv "$manifest_file.tmp" "$manifest_file"
-  fi
-}
-
-"$func"
+if [[ -z $something_done ]]; then
+  msg "Nothing to do."
+fi
