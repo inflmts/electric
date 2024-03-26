@@ -39,6 +39,7 @@ generate_args() {
   local -a dest_files
   if output=$(aft-mtp-cli "ls \"$dest\"" 2>&1); then
     dest_files=($(sed '1d; s/.* //' <<< "$output" \
+      | grep -Ex '[0-9a-z-]+\.[0-9a-z-]+\.[[:xdigit:]]{32}\.mp3' \
       | LC_COLLATE=C LC_CTYPE=C sort -u))
   elif [[ $output = *'could not find'* ]]; then
     dest_files=()
@@ -50,16 +51,14 @@ generate_args() {
 
   local dest_file
   for dest_file in "${dest_files[@]}"; do
-    if [[ $dest_file =~ [0-9a-z-]+\.[0-9a-z-]+\.[[:xdigit:]]{32}\.mp3 ]]; then
-      id=${dest_file%.mp3}
-      checksum=${id##*.}
-      id=${id%.*}
-      if [[ -v manifest[$id] ]] && [[ ${manifest[$id]} = "$checksum" ]]; then
-        unset "manifest[$id]"
-        continue
-      fi
+    id=${dest_file%.mp3}
+    checksum=${id##*.}
+    id=${id%.*}
+    if [[ -v manifest[$id] ]] && [[ ${manifest[$id]} = "$checksum" ]]; then
+      unset "manifest[$id]"
+    else
+      remove_args+=("rm \"$dest/$dest_file\"")
     fi
-    remove_args+=("rm \"$dest/$dest_file\"")
   done
 
   for id in "${manifest_ids[@]}"; do
