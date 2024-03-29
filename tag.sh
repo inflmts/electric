@@ -53,7 +53,7 @@ get_song_info() {
       title="MOONLAND (DERPCAT REMIX)"
       ;;
     camellia.1f1e33)
-      title="#1f1E33"
+      title="#1F1E33"
       ;;
     camellia.mystery-circles-ultra-uufo)
       title="MYSTERY CIRCLES ULTRA / U.U.F.O."
@@ -75,6 +75,12 @@ get_song_info() {
       ;;
     teminite.party-like-its-1923)
       title="PARTY LIKE IT'S 1923"
+      ;;
+    rai-panesar.idgas)
+      title="I DON'T GIVE A SHET"
+      ;;
+    youngboy-never-broke-again.right-foot-creep-clean)
+      title="RIGHT FOOT CREEP (CLEAN)"
       ;;
   esac
 }
@@ -122,6 +128,7 @@ update_group() {
           # add remaining files
           while [[ $i -lt ${#ids[@]} ]]; do
             retag+=("$i")
+            retag_files+=("${files[i]}")
             (( ++i ))
           done
           break
@@ -166,19 +173,19 @@ update_group() {
     file="$group/$id.mp3"
 
     msg "Tagging $id ($artist - $title - $album)"
-#   if [[ -z $dry ]]; then
-#     ffmpeg -y -hide_banner -loglevel warning \
-#       -i "$file" \
-#       -codec copy \
-#       -map 0:a \
-#       -map_metadata -1 \
-#       -metadata title="$title" \
-#       -metadata artist="$artist" \
-#       -metadata album="$album" \
-#       -bitexact \
-#       -f mp3 "$file.tmp"
-#     mv "$file.tmp" "$file"
-#   fi
+    if [[ -z $dry ]]; then
+      ffmpeg -y -hide_banner -loglevel warning \
+        -i "$file" \
+        -codec copy \
+        -map 0:a \
+        -map_metadata -1 \
+        -metadata title="$title" \
+        -metadata artist="$artist" \
+        -metadata album="$album" \
+        -bitexact \
+        -f mp3 "$file.tmp"
+      mv "$file.tmp" "$file"
+    fi
   done
 
   # if any files were tagged, update the manifest
