@@ -52,11 +52,17 @@ get_song_info() {
     au5.moonland-derpcat-remix)
       title="MOONLAND (DERPCAT REMIX)"
       ;;
+    boomkitty.peepee-song-censored)
+      title="PEEPEE SONG (CENSORED)"
+      ;;
     camellia.1f1e33)
       title="#1F1E33"
       ;;
     camellia.mystery-circles-ultra-uufo)
       title="MYSTERY CIRCLES ULTRA / U.U.F.O."
+      ;;
+    camellia.ooparts)
+      title="ΩΩPARTS"
       ;;
     camellia.tera-io)
       title="TERA I/O"
@@ -98,6 +104,8 @@ update_group() {
     if [[ $basename = +([0-9a-z-]).+([0-9a-z-]).mp3 ]]; then
       ids+=("${basename%.mp3}")
       files+=("$file")
+    else
+      warn "$group: invalid filename '$basename'"
     fi
   done
 
@@ -231,9 +239,9 @@ usage: tag.sh [<options>...]
 Electric music library autotagger.
 
 Options:
-  --dry             dry run
-  --show-manifest   print the updated manifest when done
-  --help            show this help
+  -n, --dry             dry run
+      --show-manifest   print the updated manifest when done
+      --help            show this help
 EOF
 }
 
@@ -242,7 +250,7 @@ show_manifest=
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --dry)
+    -n|--dry)
       dry=1
       ;;
     --show-manifest)
