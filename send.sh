@@ -13,6 +13,7 @@ LC_CTYPE=C
 ifs=$IFS
 
 dry=
+storage=
 
 echo() { printf '%s\n' "$*"; }
 msg() { printf >&2 '%s\n' "$*"; }
@@ -37,7 +38,7 @@ generate_args() {
   IFS=$'\n' ; set -f
   local output
   local -a dest_files
-  if output=$(aft-mtp-cli "ls \"$dest\"" 2>&1); then
+  if output=$(aft-mtp-cli ${storage:+"storage \"$storage\""} "ls \"$dest\"" 2>&1); then
     dest_files=($(sed '1d; s/.* //' <<< "$output" \
       | grep -Ex '[0-9a-z-]+\.[0-9a-z-]+\.[[:xdigit:]]{32}\.mp3' \
       | LC_COLLATE=C LC_CTYPE=C sort -u))
@@ -75,8 +76,9 @@ usage: send.sh [<options>...]
 Sync the music library to an MTP device.
 
 Options:
-  --dry         dry run
-  --help        show this help
+  --dry               dry run
+  --storage=<volume>  select storage
+  --help              show this help
 EOF
 }
 
@@ -84,6 +86,9 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --dry)
       dry=1
+      ;;
+    --storage=*)
+      storage=${1#*=}
       ;;
     --help)
       usage
@@ -104,7 +109,7 @@ generate_args main /Music/electric
 generate_args extra /Music/electric-extra
 
 if [[ ${#send_args[@]} -gt 0 ]] || [[ ${#remove_args[@]} -gt 0 ]]; then
-  args=('cd /Music' 'mkpath electric' 'mkpath electric-extra'
+  args=(${storage:+"storage \"$storage\""} 'cd /Music' 'mkpath electric' 'mkpath electric-extra'
     "${send_args[@]}" "${remove_args[@]}")
 
   if [[ $dry ]]; then

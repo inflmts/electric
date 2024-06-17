@@ -40,11 +40,14 @@ get_song_info() {
   title=${title/% VIP/ (VIP)}
 
   case $artist_id in
-    killer-fx)
-      artist="KILLER-FX"
+    a-39)
+      artist="A-39"
       ;;
     ex-lyd)
       artist="EX-LYD"
+      ;;
+    killer-fx)
+      artist="KILLER-FX"
       ;;
   esac
 
