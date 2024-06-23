@@ -88,6 +88,9 @@ get_song_info() {
     rai-panesar.idgas)
       title="I DON'T GIVE A SHET"
       ;;
+    varien.toothless-hawkins-and-his-robot-jazz-band)
+      title="TOOTHLESS HAWKINS (AND HIS ROBOT JAZZ BAND)"
+      ;;
     youngboy-never-broke-again.right-foot-creep-clean)
       title="RIGHT FOOT CREEP (CLEAN)"
       ;;
