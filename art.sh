@@ -6,12 +6,33 @@
 #
 
 set -u
-output_file=${1-folder.jpg}
+
+echo() { printf '%s\n' "$*"; }
+msg() { printf >&2 '%s\n' "$*"; }
+warn() { printf >&2 'warning: %s\n' "$*"; }
+err() { printf >&2 'error: %s\n' "$*"; }
+
+variant=${1-main}
+
+case $variant in
+  main)
+    background_gradient='#ff0050-#800028'
+    ;;
+  extra)
+    background_gradient='#0050ff-#002880'
+    ;;
+  *)
+    err "invalid variant '$variant'"
+    exit 1
+    ;;
+esac
+
+output_file="${2-art-$variant.jpg}"
 
 args=(
   -seed 1369616726
   -size 500x500 -define gradient:radii=353.553,353.553
-  radial-gradient:'#ff0050-#800028'
+  radial-gradient:"$background_gradient"
 
   \(  canvas:transparent
       -fill none -stroke '#ffffff60' -strokewidth 10
@@ -29,12 +50,18 @@ args=(
           -set colorspace srgb
       \)
       -compose displace -define compose:args=75 -composite
-      #-compose over -layers flatten
   \) -compose over -composite
   -fill white -stroke none
   -draw 'translate 250 250 path "M 10,-60 -30,15 -5,10 -10,60 30,-15 5,-10 Z"'
   -fill white -stroke none -font Montserrat-Bold -pointsize 40 -kerning 10
   -draw 'gravity center text 0 150 "ELECTRIC"'
 )
+
+if [[ $variant = extra ]]; then
+  args+=(
+    -pointsize 20 -kerning 10
+    -draw 'gravity center text 0 195 "EXTRA"'
+  )
+fi
 
 exec magick "${args[@]}" "$output_file"
