@@ -143,10 +143,7 @@ import_file() {
   tag_file "$input_file" "$output_file" "$title" "$artist" "$album" || exit 1
   rm "$input_file" || exit 1
 
-  if [[ -z $date ]]; then
-    date=$(date '+%Y-%m-%d') || exit 1
-  fi
-
+  date=$(date '+%Y-%m-%d') || exit 1
   checksum=$(md5sum "$output_file") || exit 1
   checksum=${checksum%% *}
 
