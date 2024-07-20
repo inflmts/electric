@@ -331,6 +331,7 @@ tristam.frame-of-mind 2024-06-27 main 4b98d6c485b11fa9078cedb6dc9c8999
 varien.the-scarlet-dawn 2024-02-09 main d939c83963c6f20ac7dc62267aa71028
 varien.toothless-hawkins-and-his-robot-jazz-band 2024-02-09 main 0e7d67523786fba3c7d576a8bc7d1f32
 virtual-riot.continue 2024-06-27 main dfad0776df760f600b8ad84b67356f2e
+virtual-riot.mittens-is-angry 2024-07-19 main 93cc7824e6e191aafd3c77d903e6103d
 volterix.pulsar 2023-04-08 main b164604656f5b15f21fcfac7bffe1413
 waterflame.blast-processing 2024-03-26 extra dcde73d3f3e2257f621e0788869577de
 waterflame.body-jammer 2023-02-17 main fc9822c698f4574d2c93accab2d8709e
