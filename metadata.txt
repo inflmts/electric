@@ -137,7 +137,7 @@ derpcat.stuck-in-a-dream 2023-03-05 main 64c54effaca9216a70301b93205e5306
 dex-arson.embers-instrumental 2022-11-23 main fe1581036c8e963b6077936ddcd2a16f
 dex-arson.frontlines 2022-11-23 main 1c0fc403a82b868952648503312ef283
 dex-arson.immunity 2022-11-23 main f1445e8112667d53882abecf11fac91d
-dex-arson.machina 2024-06-27 main f4334663ad1bbceddd144d44ce9e4ca3
+dex-arson.machina 2024-06-27 main d3ac41e82ed7ab3d25a0bd9c191037f6
 dex-arson.resolution 2024-06-27 main 28c4a0e6da2bc2813849e4195cb862e6
 dex-arson.unarmed 2022-11-23 main bf879e96f83d1137664fcc11f50588a8
 dex-arson.years 2024-06-27 main 2e488b225b0379502bf502dc32ae1486
@@ -327,6 +327,7 @@ thefatrat.infinite-power 2023-07-10 main a2c5dd5acacd7a104a8adf0915686eab
 thefatrat.jackpot 2023-03-05 main a5fe78b2e9eb87afce60e081fe2ddaca
 thefatrat.unity 2023-03-05 main ac914b3b9577f1bab51def23be35282c
 thefatrat.xenogenesis 2023-03-05 main 0beb4f1ac2be34f3e8e60ed7cf14f125
+tmm43.maybe 2024-07-29 extra 67089c63c3ec283f6084a7ffee1ff048
 tristam.frame-of-mind 2024-06-27 main 4b98d6c485b11fa9078cedb6dc9c8999
 varien.the-scarlet-dawn 2024-02-09 main d939c83963c6f20ac7dc62267aa71028
 varien.toothless-hawkins-and-his-robot-jazz-band 2024-02-09 main 0e7d67523786fba3c7d576a8bc7d1f32
