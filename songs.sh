@@ -117,7 +117,7 @@ import_file() {
   done
 
   group=main
-  read -r -p 'Flags ([e]xtra):' sel || exit 1
+  read -r -p 'Flags ([e]xtra): ' sel || exit 1
   if [[ $sel = *e* ]]; then
     group=extra
   fi

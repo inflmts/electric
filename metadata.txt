@@ -242,6 +242,7 @@ nstryder.fight-for-the-present 2023-08-15 main bec6f5f6df628c5aa5e3dc5acc61c6d8
 nstryder.gigabit-weaboo 2023-07-09 main 36a51cd7f8bc82a2cdc00e9d9c93f14c
 ocularnebula.chirplet 2023-05-08 main 2e5e7bed84dfbe3bb7fbdf03e398c51d
 ocularnebula.pulsar 2023-05-08 main df2c9f2703432e265714c591555c494c
+outlandr.overcome 2024-08-02 main fcd07c9f436ae0dfa2f46d04cc424658
 panda-eyes.back-again 2023-03-05 main 8dbb08132080582c08fb8ba7a09c7edf
 panda-eyes.colorblind 2023-07-10 main d576e0979b808bc4cb33a22469b1bc91
 panda-eyes.crystal-cave 2023-03-05 main b6fd4c2c17ef369ec3e0e80ac0fc8c40
@@ -328,6 +329,9 @@ thefatrat.jackpot 2023-03-05 main a5fe78b2e9eb87afce60e081fe2ddaca
 thefatrat.unity 2023-03-05 main ac914b3b9577f1bab51def23be35282c
 thefatrat.xenogenesis 2023-03-05 main 0beb4f1ac2be34f3e8e60ed7cf14f125
 tmm43.maybe 2024-07-29 extra 67089c63c3ec283f6084a7ffee1ff048
+tokyo-machine.last-summer 2024-08-03 main 5eefa62bb88187356361ac18ee8c4c93
+tokyo-machine.rock-it 2024-08-03 main c1b96c7c30a3456f496d1a2a6d330d5e
+tokyo-machine.turbo 2024-08-03 main 690beded59f03f922fb59cb529c801d3
 tristam.frame-of-mind 2024-06-27 main 4b98d6c485b11fa9078cedb6dc9c8999
 varien.the-scarlet-dawn 2024-02-09 main d939c83963c6f20ac7dc62267aa71028
 varien.toothless-hawkins-and-his-robot-jazz-band 2024-02-09 main 0e7d67523786fba3c7d576a8bc7d1f32
