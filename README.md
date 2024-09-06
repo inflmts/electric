@@ -1,33 +1,28 @@
-# Electric
+# Electric Music Library
 
-The InfiniteLimits EDM library.
+This is the InfiniteLimits EDM library, curated by Daniel Li.
 
-Daniel Li <inflmts@gmail.com>
+## Manifest File Format
 
-Song files are located in the `files` directory. Each filename is in the form
-`<artist>.<title>.mp3`, where `<artist>` and `<title>` are identifiers
-representing the artist and title, respectively, using only the characters
-`0-9`, `a-z`, and `-`.
-
-## tag.sh
-
-`tag.sh` is the library autotagger. It takes information from `songs.txt` and
-`artists.txt` to tag each music file with the appropriate song, artist, and
-album name. It also removes any other metadata in the file. The identifiers in
-these metadata files are the same as those used in the song filenames.
-
-`tag.sh` can automatically populate these files with songs and artists that have
-not been added yet. To do this, run `tag.sh` with the `--update-metadata`
-option:
+The manifest file is a text file located at `manifest.txt`.
+There are two groups, `main` and `extra`, each corresponding to a music directory.
+They must appear in the manifest file in that order.
+Each group begins with a header line, where `group` is the name of the group:
 
 ```
-./tag.sh --update-metadata
+[group]
 ```
 
-When sufficient information is provided in the metadata files, `tag.sh` can be
-used to tag the music files with the defined song, artist, and album names. To
-do this, run `tag.sh` without arguments:
+Following the group header is one line for each song in the group:
 
 ```
-./tag.sh
+artist title hash date
 ```
+
+- `artist` is the artist ID.
+- `title` is the title ID.
+- `hash` is the MD5 hash of the audio file as a 32-character lowercase hexadecimal string.
+- `date` is the date the song was added to the library in the format `YYYY-MM-DD`.
+
+The file is sorted by artist ID and then title ID, both in ASCII order
+(`-` sorts before digits, which sort before letters).
