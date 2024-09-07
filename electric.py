@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 ########################################
-#   Electric music library manager
+# Electric music library manager
 #---------------------------------------
 #
 #   Author: Daniel Li
 #   Date: Sep 04 2024
+#
+#   Dependencies:
+#     - ffmpeg
 #
 ########################################
 
