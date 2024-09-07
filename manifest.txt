@@ -1,4 +1,4 @@
-[main]
+[core]
 1f1n1ty asau 7f2d2541e44eb8f41a2f40e212fb49a3 2023-05-08
 3rd-prototype climbing cc4ff9e3080547abc518471ed5bdc5a8 2024-03-30
 aasquared saturn-v cdea86713394cfc44791439c7126a87e 2023-05-23

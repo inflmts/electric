@@ -1,13 +1,26 @@
 # Electric Music Library
 
-This is the InfiniteLimits EDM library, curated by Daniel Li.
+_Daniel Li_
+
+This is a collection of electronic music that I like,
+extracted from various places on the internet.
+
+The purpose of this project is to provide a way to automatically normalize audio files
+and to make it easy to synchronize music between devices.
+
+The library is divided into two groups, `core` and `extra`.
+The `core` group contains songs for regular listening.
+They can be shuffled to produce a sort of all-purpose playlist.
+The majority of songs fall into this group.
+The `extra` group contains songs that are not intended for regular listening,
+usually because they're kind of stupid.
+However, they have significant value and are useful on occasion.
 
 ## Manifest File Format
 
 The manifest file is a text file located at `manifest.txt`.
-There are two groups, `main` and `extra`, each corresponding to a music directory.
-They must appear in the manifest file in that order.
-Each group begins with a header line, where `group` is the name of the group:
+The file is divided into groups.
+Each group begins with a header line (`group` is the name of the group):
 
 ```
 [group]
