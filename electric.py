@@ -257,7 +257,6 @@ def save_manifest_or_abort(filename, manifest):
 # If a file is not found in the target directory,
 # it is searched for in the source directories in the order provided.
 # If `dry_run` is true, the actual copy is not performed, but output is still printed.
-# TODO: prune
 def sync_files(manifest, target_dir, source_dirs, dry_run):
     ok = True
 
@@ -281,13 +280,13 @@ def sync_files(manifest, target_dir, source_dirs, dry_run):
                     source_file = os.path.join(source_dir, basepath)
                     if not os.path.exists(source_file):
                         continue
-                    print(f"Copying {song}")
+                    print(f"Copying {basepath}")
                     if not dry_run:
                         with open(source_file, 'rb') as source, open(target_file, 'xb') as target:
                             shutil.copyfileobj(source, target)
                     break
                 else:
-                    warn(f"could not find source for {song}")
+                    warn(f"could not find source for {basepath}")
                     ok = False
 
     return ok
@@ -442,8 +441,8 @@ def command_update(context, args):
 
 s = subparsers.add_parser(
     'update',
-    help='update file tags and the manifest',
-    description='Update file tags and the manifest.')
+    help='import and retag music files',
+    description='Import and retag music files.')
 s.add_argument('--auto', help='do not prompt for confirmation')
 s.set_defaults(func=command_update)
 
@@ -451,39 +450,37 @@ s.set_defaults(func=command_update)
 # Command: pull
 #---------------------------------------
 
-def command_sync(args):
-    manifest = load_manifest_or_abort(args.manifest)
-    if not sync_files(manifest, args.music_dir, args.source, args.dry_run):
+def command_pull(context, args):
+    context.load_manifest()
+    if not sync_files(context.manifest, context.music_dir, args.source, args.dry_run):
         sys.exit(1)
 
 s = subparsers.add_parser(
-    'sync',
-    help='copy files from source directories using manifest',
-    description='Copies files from one or more source directories as necessary to satisfy the manifest.')
+    'pull',
+    help='satisfy manifest using files from source directories',
+    description='Satisfy the manifest using files from one or more source directories.')
 s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
 s.add_argument('source', nargs='+', help='source directories')
-s.set_defaults(func=command_sync)
+s.set_defaults(func=command_pull)
 
 #---------------------------------------
 # Command: push
 #---------------------------------------
 
-def command_push(args):
-    manifest = load_manifest_or_abort(args.manifest)
-    if not sync_files(manifest, args.target, [args.music_dir], args.dry_run):
+def command_push(context, args):
+    context.load_manifest()
+    if not sync_files(context.manifest, args.target, [context.music_dir], args.dry_run):
         sys.exit(1)
-    if args.prune:
-        for file in find_orphans(manifest, args.target):
-            print(f"Pruning {file}")
-            if not args.dry_run:
-                os.remove(os.path.join(args.target, file))
+    for file in find_orphans(context.manifest, args.target):
+        print(f"Pruning {file}")
+        if not args.dry_run:
+            os.remove(os.path.join(args.target, file))
 
 s = subparsers.add_parser(
     'push',
     help='copy files to destination using local manifest',
     description='Copy files to destination using local manifest.')
 s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-s.add_argument('--prune', action='store_true', help='prune extraneous files')
 s.add_argument('target', help='target directory')
 s.set_defaults(func=command_push)
 
@@ -491,60 +488,66 @@ s.set_defaults(func=command_push)
 # Command: info
 #---------------------------------------
 
-#def command_info(args):
-#    print(f'Manifest: {args.manifest}')
-#    print('Groups:')
-#    manifest = load_manifest_or_abort(args.manifest)
-#    artists = set()
-#    total_songs = 0
-#    for group, group_dict in manifest.items():
-#        print(f'  {group}: {len(group_dict)} songs')
-#        for song_id in group_dict:
-#            artists.add(song_id[0])
-#        total_songs += len(group_dict)
-#    print(f'{len(artists)} artists, {total_songs} songs')
-#
-#sp = subparsers.add_parser(
-#    'info',
-#    help='print info about the manifest',
-#    description='Print info about the manifest.')
-#sp.set_defaults(func=command_info)
+def command_info(context, args):
+    print(f'Manifest: {context.manifest_file}')
+    print(f'Music directory: {context.music_dir}')
+    context.load_manifest()
+
+    print('Groups:')
+    artists = set()
+    total = 0
+    for group in GROUPS:
+        group_manifest = context.manifest[group]
+        group_total = len(group_manifest)
+        print(f'  {group}: {group_total} songs')
+        for artist, title in group_manifest:
+            artists.add(artist)
+        total += group_total
+    print(f'Total: {len(artists)} artists, {total} songs')
+
+sp = subparsers.add_parser(
+    'info',
+    help='print info about the manifest',
+    description='Print information about the manifest.')
+sp.set_defaults(func=command_info)
 
 #---------------------------------------
-# Command: orphans
+# Command: prune
 #---------------------------------------
 
-def command_orphans(args):
-    manifest = load_manifest_or_abort(args.manifest)
-    for file in find_orphans(manifest, args.music_dir):
+def command_prune(context, args):
+    context.load_manifest()
+    orphans = find_orphans(context.manifest, context.music_dir)
+    for file in orphans:
         print(file)
-        if args.delete:
+        if not args.dry_run:
             os.remove(os.path.join(args.music_dir, file))
 
 s = subparsers.add_parser(
-    'orphans',
-    help='find files not referenced by the manifest',
+    'prune',
+    help='remove files not referenced by the manifest',
     description='Find and optionally delete files not referenced by the manifest.')
-s.add_argument('-d', '--delete', action='store_true', help='delete files')
-s.set_defaults(func=command_orphans)
+s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
+s.set_defaults(func=command_prune)
 
 #---------------------------------------
 # Command: check
 #---------------------------------------
 
-def command_check(args):
-    manifest = load_manifest_or_abort(args.manifest)
-    ok = True
+def command_check(context, args):
+    quiet = args.quiet
+    context.load_manifest()
 
+    ok = True
     for group in GROUPS:
-        group_manifest = manifest[group]
+        group_manifest = context.manifest[group]
         song_ids = sorted(group_manifest)
         for i in range(len(song_ids)):
             song_id = song_ids[i]
             song = group_manifest[song_id]
             if istty and not quiet:
                 sys.stderr.write(f'\r\033[K[{group}] {i}/{len(song_ids)} ')
-            filename = os.path.join(args.music_dir, song.basepath())
+            filename = os.path.join(context.music_dir, song.basepath())
             try:
                 file_hash = get_file_hash(filename)
             except FileNotFoundError:
@@ -559,7 +562,7 @@ def command_check(args):
         sys.stderr.write('\r\033[K')
     if not ok:
         sys.exit(1)
-    elif not quiet:
+    if not quiet:
         print('OK')
 
 s = subparsers.add_parser(
@@ -573,11 +576,12 @@ s.set_defaults(func=command_check)
 # Command: tag
 #---------------------------------------
 
-def command_tag(args):
+def command_tag(context, args):
     try:
         tag_file(args.input, args.output, Tags(args.title, args.artist, args.album))
     except subprocess.CalledProcessError as e:
         err(f"ffmpeg failed: {e}")
+        sys.exit(e.returncode)
 
 s = subparsers.add_parser(
     'tag',
@@ -594,12 +598,13 @@ s.set_defaults(func=command_tag)
 # Command: dump
 #---------------------------------------
 
-def command_dump(args):
-    manifest = load_manifest_or_abort(args.manifest)
-    write_manifest(sys.stdout, manifest)
+def command_dump(context, args):
+    context.load_manifest()
+    write_manifest(sys.stdout, context.manifest)
 
 s = subparsers.add_parser(
     'dump',
+    help='dump the manifest to stdout',
     description='Dump the manifest to stdout.')
 s.set_defaults(func=command_dump)
 
@@ -607,7 +612,7 @@ s.set_defaults(func=command_dump)
 # Command: taghash
 #---------------------------------------
 
-def command_taghash(args):
+def command_taghash(context, args):
     import json
     data = json.loads(subprocess.check_output([
         'ffprobe', '-hide_banner', '-loglevel', 'warning',
@@ -618,7 +623,7 @@ def command_taghash(args):
 
 s = subparsers.add_parser(
     'taghash',
-    description='Print the tag hash of a file (currently very slow!)')
+    description='Print the tag hash of a file (currently very slow!). Only used for debugging.')
 s.add_argument('file', help='music file')
 s.set_defaults(func=command_taghash)
 
