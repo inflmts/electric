@@ -60,12 +60,17 @@ ARTIST_NAME_OVERRIDES = {
 }
 
 SONG_TITLE_OVERRIDES = {
+    ('au5', 'moonland-derpcat-remix'): 'MOONLAND (DERPCAT REMIX)',
     ('camellia', '1f1e33'): '#1F1E33'
 }
 
 #---------------------------------------
 # Utility Functions
 #---------------------------------------
+
+# see https://stackoverflow.com/a/293633
+if sys.platform == 'win32':
+    os.system('color')
 
 istty = os.isatty(2)
 
@@ -95,6 +100,15 @@ def get_tag_hash(tags):
         tags.artist.encode('utf-8') + bytes(0) +
         tags.album.encode('utf-8'))
 
+def generate_song_tags(group, artist, title):
+    id = (artist, title)
+    return Tags(
+        (SONG_TITLE_OVERRIDES[id] if id in SONG_TITLE_OVERRIDES
+            else title.upper().replace('-', ' ')),
+        (ARTIST_NAME_OVERRIDES[artist] if artist in ARTIST_NAME_OVERRIDES
+            else artist.upper().replace('-', ' ')),
+        GROUP_ALBUM_NAMES[group])
+
 class Song:
     def __init__(self, group, artist, title, date, file_hash, tag_hash):
         self.group = group
@@ -108,15 +122,8 @@ class Song:
     def __str__(self):
         return f'{self.group}/{self.artist}.{self.title}'
 
-    def get_tags(self):
-        title = (SONG_TITLE_OVERRIDES[self.id]
-            if self.id in SONG_TITLE_OVERRIDES
-            else self.title.upper().replace('-', ' '))
-        artist = (ARTIST_NAME_OVERRIDES[self.artist]
-            if self.artist in ARTIST_NAME_OVERRIDES
-            else self.artist.upper().replace('-', ' '))
-        album = GROUP_ALBUM_NAMES[self.group]
-        return Tags(title, artist, album)
+    def generate_tags(self):
+        return generate_song_tags(self.group, self.artist, self.title)
 
     def basename(self):
         return f'{self.artist}.{self.title}.{self.file_hash}.mp3'
@@ -299,60 +306,91 @@ def find_orphans(manifest, music_dir):
             files.append(os.path.join(group, basename))
     return files
 
+class Context:
+    def __init__(self, root, manifest_file, music_dir):
+        self.root = root
+        self.manifest_file = manifest_file
+        self.music_dir = music_dir
+        self.manifest = None
+
+    def load_manifest(self):
+        self.manifest = load_manifest_or_abort(self.manifest_file)
+
+    def save_manifest(self):
+        assert self.manifest is not None
+        save_manifest_or_abort(self.manifest_file, self.manifest)
+
 #---------------------------------------
-# Parsing
+# Command Line Parsing
 #---------------------------------------
 
 parser = ArgumentParser(
         prog='electric',
         description='Electric music library manager')
 parser.add_argument('-r', '--root', metavar='DIR', default=DEFAULT_ROOT, help=f'root directory (default: {DEFAULT_ROOT})')
-parser.add_argument('--music-dir', metavar='DIR', help='music directory (default: <root>)')
 parser.add_argument('--manifest', metavar='FILE', help='manifest file (default: <root>/manifest.txt)')
+parser.add_argument('--music-dir', metavar='DIR', help='music directory (default: <root>)')
 parser.set_defaults(func=None)
 subparsers = parser.add_subparsers(metavar='command')
 
-#-- update
+#---------------------------------------
+# Command: update
+#---------------------------------------
 
-RE_MUSIC_FILE = re.compile('([0-9a-z]+(?:-[0-9a-z]+)*)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.([0-9a-f]{32})\\.mp3')
-RE_QUEUE_FILE = re.compile('([0-9a-z]+(?:-[0-9a-z]+)*)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.mp3')
+RE_IMPORT_FILE = re.compile('([a-z]+)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.mp3')
 
-def command_update(args):
-    manifest = load_manifest_or_abort(args.manifest)
+ImportItem = namedtuple('ImportItem', ['filename', 'group', 'artist', 'title', 'tags'])
+RetagItem = namedtuple('RetagItem', ['song', 'tags', 'expected_hash'])
 
-    retag = []
+def command_update(context, args):
+    context.load_manifest()
 
+    queue_dir = os.path.join(context.root, 'queue')
+
+    import_items = []
+    retag_items = []
+
+    # go through queue and add files to import
+    for filename in os.listdir(queue_dir):
+        match = RE_IMPORT_FILE.fullmatch(file)
+        if not match:
+            continue
+        group = match.group(1)
+        if group not in GROUPS:
+            warn(f"{filename}: invalid group '{group}'")
+            continue
+        artist = match.group(2)
+        title = match.group(3)
+        if (artist, title) in context.manifest[group]:
+            warn(f"{filename}: song already exists")
+            continue
+        tags = generate_song_tags(group, artist, title)
+
+        print(f"\033[1;32mimport:\033[0m {filename}")
+        print(f"  title: {tags.title}")
+        print(f"  artist: {tags.artist}")
+        print(f"  album: {tags.album}")
+        import_items.append(ImportItem(filename, group, artist, title, tags))
+
+    # search for incorrectly tagged files in manifest
     for group in GROUPS:
-        group_manifest = manifest[group]
-        group_dir = os.path.join(args.music_dir, group)
-
-        music_files = set()
-        queue_files = set()
-        extraneous_files = set()
-
-        for file in os.listdir(group_dir):
-            if file.startswith('.') or not file.endswith('.mp3'):
-                continue
-            match = RE_MUSIC_FILE.fullmatch(file)
-            if match:
-                music_files.add((file, match.group(1), match.group(2), match.group(3)))
-                continue
-            match = RE_QUEUE_FILE.fullmatch(file)
-            if match:
-                queue_files.add((file, match.group(1), match.group(2)))
-                continue
-            extraneous_files.add(file)
-
+        group_manifest = context.manifest[group]
         for song_id in sorted(group_manifest):
             song = group_manifest[song_id]
-            tags = song.get_tags()
+            tags = song.generate_tags()
             expected_hash = get_tag_hash(tags)
-            if song.tag_hash != expected_hash:
-                print(f"retag: {song}")
-                print(f"  title: {tags.title}")
-                print(f"  artist: {tags.artist}")
-                print(f"  album: {tags.album}")
-                retag.append((song, tags, expected_hash))
+            if song.tag_hash == expected_hash:
+                continue
+
+            print(f"\033[1;36mretag:\033[0m {song}")
+            print(f"  title: {tags.title}")
+            print(f"  artist: {tags.artist}")
+            print(f"  album: {tags.album}")
+            retag_items.append(RetagItem(song, tags, expected_hash))
+
+    if len(import_items) == 0 and len(retag_items) == 0:
+        print('Nothing to do')
+        return True
 
     resp = input('Proceed [Y/n]? ')
     if not (len(resp) == 0 or resp[0] == 'y' or resp[0] == 'Y'):
@@ -360,45 +398,75 @@ def command_update(args):
         return False
 
     try:
-        for song, tags, expected_hash in retag:
-            print(f"Retagging {song}")
-            src_file = os.path.join(args.music_dir, song.basepath())
+        # process files to import
+        for filename, group, artist, title, tags in import_items:
+            date = datetime.date.today()
+            song = Song(group, artist, title, date, None, None)
+            print(f"Importing {song}")
+
+            src_file = os.path.join(queue_dir, filename)
             temp_file = src_file + '~'
             tag_file(src_file, temp_file, tags)
+
             song.file_hash = get_file_hash(temp_file)
-            song.tag_hash = expected_hash
-            dest_file = os.path.join(args.music_dir, song.basepath())
+            song.tag_hash = get_tag_hash(tags)
+            dest_file = os.path.join(context.music_dir, song.basepath())
             os.replace(temp_file, dest_file)
+
+            # success; update manifest now and remove source file
+            assert song.id not in manifest[group]
+            manifest[group][song.id] = song
             os.remove(src_file)
+
+        # process files to retag
+        for song, tags, expected_tag_hash in retag_items:
+            print(f"Retagging {song}")
+            src_file = os.path.join(context.music_dir, song.basepath())
+            temp_file = src_file + '~'
+            tag_file(src_file, temp_file, tags)
+
+            file_hash = get_file_hash(temp_file)
+            dest_file = os.path.join(context.music_dir, song.group, f'{song.artist}.{song.title}.{file_hash}.mp3')
+            os.replace(temp_file, dest_file)
+
+            # success; update manifest now and remove source file
+            song.file_hash = file_hash
+            song.tag_hash = expected_tag_hash
+            os.remove(src_file)
+
     finally:
-        save_manifest_or_abort(args.manifest, manifest)
+        # always save the manifest
+        context.save_manifest()
 
     return True
 
-
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'update',
     help='update file tags and the manifest',
     description='Update file tags and the manifest.')
-sp.add_argument('--auto', help='do not prompt for confirmation')
-sp.set_defaults(func=command_update)
+s.add_argument('--auto', help='do not prompt for confirmation')
+s.set_defaults(func=command_update)
 
-#-- sync
+#---------------------------------------
+# Command: pull
+#---------------------------------------
 
 def command_sync(args):
     manifest = load_manifest_or_abort(args.manifest)
     if not sync_files(manifest, args.music_dir, args.source, args.dry_run):
         sys.exit(1)
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'sync',
     help='copy files from source directories using manifest',
     description='Copies files from one or more source directories as necessary to satisfy the manifest.')
-sp.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-sp.add_argument('source', nargs='+', help='source directories')
-sp.set_defaults(func=command_sync)
+s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
+s.add_argument('source', nargs='+', help='source directories')
+s.set_defaults(func=command_sync)
 
-#-- push
+#---------------------------------------
+# Command: push
+#---------------------------------------
 
 def command_push(args):
     manifest = load_manifest_or_abort(args.manifest)
@@ -410,37 +478,41 @@ def command_push(args):
             if not args.dry_run:
                 os.remove(os.path.join(args.target, file))
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'push',
     help='copy files to destination using local manifest',
     description='Copy files to destination using local manifest.')
-sp.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-sp.add_argument('--prune', action='store_true', help='prune extraneous files')
-sp.add_argument('target', help='target directory')
-sp.set_defaults(func=command_push)
+s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
+s.add_argument('--prune', action='store_true', help='prune extraneous files')
+s.add_argument('target', help='target directory')
+s.set_defaults(func=command_push)
 
-#-- info
+#---------------------------------------
+# Command: info
+#---------------------------------------
 
-def command_info(args):
-    print(f'Manifest: {args.manifest}')
-    print('Groups:')
-    manifest = load_manifest_or_abort(args.manifest)
-    artists = set()
-    total_songs = 0
-    for group, group_dict in manifest.items():
-        print(f'  {group}: {len(group_dict)} songs')
-        for song_id in group_dict:
-            artists.add(song_id[0])
-        total_songs += len(group_dict)
-    print(f'{len(artists)} artists, {total_songs} songs')
+#def command_info(args):
+#    print(f'Manifest: {args.manifest}')
+#    print('Groups:')
+#    manifest = load_manifest_or_abort(args.manifest)
+#    artists = set()
+#    total_songs = 0
+#    for group, group_dict in manifest.items():
+#        print(f'  {group}: {len(group_dict)} songs')
+#        for song_id in group_dict:
+#            artists.add(song_id[0])
+#        total_songs += len(group_dict)
+#    print(f'{len(artists)} artists, {total_songs} songs')
+#
+#sp = subparsers.add_parser(
+#    'info',
+#    help='print info about the manifest',
+#    description='Print info about the manifest.')
+#sp.set_defaults(func=command_info)
 
-sp = subparsers.add_parser(
-    'info',
-    help='print info about the manifest',
-    description='Print info about the manifest.')
-sp.set_defaults(func=command_info)
-
-#-- orphans
+#---------------------------------------
+# Command: orphans
+#---------------------------------------
 
 def command_orphans(args):
     manifest = load_manifest_or_abort(args.manifest)
@@ -449,14 +521,16 @@ def command_orphans(args):
         if args.delete:
             os.remove(os.path.join(args.music_dir, file))
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'orphans',
     help='find files not referenced by the manifest',
     description='Find and optionally delete files not referenced by the manifest.')
-sp.add_argument('-d', '--delete', action='store_true', help='delete files')
-sp.set_defaults(func=command_orphans)
+s.add_argument('-d', '--delete', action='store_true', help='delete files')
+s.set_defaults(func=command_orphans)
 
-#-- check
+#---------------------------------------
+# Command: check
+#---------------------------------------
 
 def command_check(args):
     manifest = load_manifest_or_abort(args.manifest)
@@ -488,14 +562,16 @@ def command_check(args):
     elif not quiet:
         print('OK')
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'check',
     help='check integrity of files',
     description='Check integrity of files.')
-sp.add_argument('-q', '--quiet', action='store_true', help='suppress progress and informational output')
-sp.set_defaults(func=command_check)
+s.add_argument('-q', '--quiet', action='store_true', help='suppress progress and informational output')
+s.set_defaults(func=command_check)
 
-#-- tag
+#---------------------------------------
+# Command: tag
+#---------------------------------------
 
 def command_tag(args):
     try:
@@ -503,29 +579,33 @@ def command_tag(args):
     except subprocess.CalledProcessError as e:
         err(f"ffmpeg failed: {e}")
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'tag',
     help='tag a music file',
     description='Tag a music file.')
-sp.add_argument('input', help='input file')
-sp.add_argument('output', help='output file')
-sp.add_argument('title', help='title')
-sp.add_argument('artist', help='artist')
-sp.add_argument('album', help='album')
-sp.set_defaults(func=command_tag)
+s.add_argument('input', help='input file')
+s.add_argument('output', help='output file')
+s.add_argument('title', help='title')
+s.add_argument('artist', help='artist')
+s.add_argument('album', help='album')
+s.set_defaults(func=command_tag)
 
-#-- dump
+#---------------------------------------
+# Command: dump
+#---------------------------------------
 
 def command_dump(args):
     manifest = load_manifest_or_abort(args.manifest)
     write_manifest(sys.stdout, manifest)
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'dump',
     description='Dump the manifest to stdout.')
-sp.set_defaults(func=command_dump)
+s.set_defaults(func=command_dump)
 
-#-- taghash
+#---------------------------------------
+# Command: taghash
+#---------------------------------------
 
 def command_taghash(args):
     import json
@@ -536,21 +616,29 @@ def command_taghash(args):
     tag_hash = get_tag_hash(Tags(data['title'], data['artist'], data['album']))
     print('%08x' % tag_hash)
 
-sp = subparsers.add_parser(
+s = subparsers.add_parser(
     'taghash',
     description='Print the tag hash of a file (currently very slow!)')
-sp.add_argument('file', help='music file')
-sp.set_defaults(func=command_taghash)
+s.add_argument('file', help='music file')
+s.set_defaults(func=command_taghash)
 
 #---------------------------------------
 
-args = parser.parse_args()
-if args.music_dir is None:
-    args.music_dir = args.root
-if args.manifest is None:
-    args.manifest = os.path.join(args.root, 'manifest.txt')
-if args.func is None:
-    parser.print_help()
-    sys.exit(2)
-else:
-    args.func(args)
+def main():
+    args = parser.parse_args()
+    root = args.root
+    manifest_file = (args.manifest if args.manifest is not None else os.path.join(root, 'manifest.txt'))
+    music_dir = (args.music_dir if args.music_dir is not None else root)
+
+    del args.root
+    del args.manifest
+    del args.music_dir
+    context = Context(root, manifest_file, music_dir)
+
+    if args.func is None:
+        parser.print_help()
+        sys.exit(2)
+    else:
+        args.func(context, args)
+
+main()
