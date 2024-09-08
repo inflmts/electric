@@ -315,6 +315,7 @@ teminite state-of-mind 2022-11-23 e3fb03e483ff5cd6c0c784a3fe59e268 7d13dff7
 teminite surface-tension 2022-11-23 80c5923b38fdbea712d4b05d8f275b5c 9b9cf147
 teminite the-master 2024-06-09 971c736d3ab4d64c8875c0ecda9bd48b ef14a0a3
 teminite unstoppable 2024-08-13 1da2a4fb62ef996597c019977b34c9c3 696ccde5
+teminite uprising 2024-09-08 791fdded6d5edaff88cf821d79c8a45c 23eb6c7e
 teminite when-i-fall 2024-05-23 c6f1d16cf4e29072b7e58c93784f0415 b1e1fa11
 teminite work 2022-11-23 0435ce9e7d1b745a08dfcab996984f14 4d801649
 teminite yours 2024-03-30 be3d284891daf9a98687f12f561fe6b7 e47716b0
