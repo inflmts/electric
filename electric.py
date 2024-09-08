@@ -351,7 +351,7 @@ def command_update(context, args):
 
     # go through queue and add files to import
     for filename in os.listdir(queue_dir):
-        match = RE_IMPORT_FILE.fullmatch(file)
+        match = RE_IMPORT_FILE.fullmatch(filename)
         if not match:
             continue
         group = match.group(1)
@@ -405,6 +405,10 @@ def command_update(context, args):
 
             src_file = os.path.join(queue_dir, filename)
             temp_file = src_file + '~'
+            try:
+                os.remove(temp_file)
+            except FileNotFoundError:
+                pass
             tag_file(src_file, temp_file, tags)
 
             song.file_hash = get_file_hash(temp_file)
@@ -413,8 +417,8 @@ def command_update(context, args):
             os.replace(temp_file, dest_file)
 
             # success; update manifest now and remove source file
-            assert song.id not in manifest[group]
-            manifest[group][song.id] = song
+            assert song.id not in context.manifest[group]
+            context.manifest[group][song.id] = song
             os.remove(src_file)
 
         # process files to retag
@@ -422,6 +426,10 @@ def command_update(context, args):
             print(f"Retagging {song}")
             src_file = os.path.join(context.music_dir, song.basepath())
             temp_file = src_file + '~'
+            try:
+                os.remove(temp_file)
+            except FileNotFoundError:
+                pass
             tag_file(src_file, temp_file, tags)
 
             file_hash = get_file_hash(temp_file)
