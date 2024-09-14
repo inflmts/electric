@@ -3,6 +3,7 @@
 3rd-prototype climbing 2024-03-30 cc4ff9e3080547abc518471ed5bdc5a8 e27c9489
 aasquared saturn-v 2023-05-23 cdea86713394cfc44791439c7126a87e 1c049296
 aika dawn 2023-05-08 548cd5a6e50b2cd1e0b4e1b9555c29da b1458888
+ajr burn-the-house-down 2024-09-13 4b973af93eb1423687983214bd3afe6d 0082e591
 akira-complex ez-mode 2023-03-05 43be09fa53866efe95cb27c0ab1dfea1 b2f47f72
 akira-complex stinger-missile 2023-03-05 2ee364bf6fa1e8afb3accc02042377f3 e62b737b
 albee kocmoc 2024-03-23 55996ff6798556a6e3f638196c7e5bf6 b4ea0032
@@ -156,6 +157,7 @@ far-out strangers 2022-11-23 ce6d2e66d2d37e72da460f0fb8145310 82aa794b
 feint fading-wind 2022-11-23 c19879f0a4aa29eea9d988aab31f5c4d 2cde2dd9
 feint time-bomb 2024-06-27 79b35526dcc2d9a3dc054ec6d4f52159 045531b8
 fionn-hodgson starfish 2023-01-03 8932de4dc6d2a1977611ef6c4b37731c 9fdec89b
+foster-the-people lambs-wool 2024-09-13 2bb51ca6d60bdcb00c1b2465f7e4b0d9 496466bd
 fwlr already-gone 2023-02-03 558d9fe3142f583c1b21a163257fdebb caacc84a
 fwlr breakout 2022-08-31 2a7e69c2328d0f07fad91d35db1da23a f052f8b8
 fwlr bust-it-out 2022-08-31 e923bb439b58af27680ab53f6eadbe68 7d53f5e6
