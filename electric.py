@@ -83,6 +83,10 @@ def warn(message):
 err.prefix = '\033[1;31merror:\033[0m' if istty else 'error:'
 warn.prefix = '\033[1;33mwarning:\033[0m' if istty else 'warning:'
 
+def confirm(prompt, default=False):
+    reply = input(prompt)
+    return default if len(reply) == 0 else reply == 'y' or reply == 'Y'
+
 # Calculate the MD5 hash of a file and return it as a hex string.
 # See https://stackoverflow.com/a/59056837
 def get_file_hash(filename):
@@ -338,16 +342,26 @@ subparsers = parser.add_subparsers(metavar='command')
 
 RE_IMPORT_FILE = re.compile('([a-z]+)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.([0-9a-z]+(?:-[0-9a-z]+)*)\\.mp3')
 
-ImportItem = namedtuple('ImportItem', ['filename', 'group', 'artist', 'title', 'tags'])
-RetagItem = namedtuple('RetagItem', ['song', 'tags', 'expected_hash'])
+class UpdateItem:
+    def __init__(self, song, tags, source_file):
+        self.song = song
+        self.tags = tags
+        self.source_file = source_file
+
+class ImportItem(UpdateItem):
+    def log(self):
+        print(f'Importing {self.song}')
+
+class RetagItem(UpdateItem):
+    def log(self):
+        print(f'Retagging {self.song}')
 
 def command_update(context, args):
     context.load_manifest()
 
     queue_dir = os.path.join(context.root, 'queue')
 
-    import_items = []
-    retag_items = []
+    items = []
 
     # go through queue and add files to import
     for filename in os.listdir(queue_dir):
@@ -365,17 +379,18 @@ def command_update(context, args):
             continue
         tags = generate_song_tags(group, artist, title)
 
-        print(f"\033[1;32mimport:\033[0m {filename}")
+        date = datetime.date.today()
+        song = Song(group, artist, title, date, None, None)
+        print(f"\033[1;32mimport:\033[0m {song}")
         print(f"  title: {tags.title}")
         print(f"  artist: {tags.artist}")
         print(f"  album: {tags.album}")
-        import_items.append(ImportItem(filename, group, artist, title, tags))
+        items.append(ImportItem(song, tags, os.path.join(queue_dir, filename)))
 
     # search for incorrectly tagged files in manifest
     for group in GROUPS:
         group_manifest = context.manifest[group]
-        for song_id in sorted(group_manifest):
-            song = group_manifest[song_id]
+        for song in sorted(group_manifest.values(), key=lambda song: song.id):
             tags = song.generate_tags()
             expected_hash = get_tag_hash(tags)
             if song.tag_hash == expected_hash:
@@ -385,74 +400,110 @@ def command_update(context, args):
             print(f"  title: {tags.title}")
             print(f"  artist: {tags.artist}")
             print(f"  album: {tags.album}")
-            retag_items.append(RetagItem(song, tags, expected_hash))
+            items.append(RetagItem(song, tags, os.path.join(context.music_dir, song.basepath())))
 
-    if len(import_items) == 0 and len(retag_items) == 0:
-        print('Nothing to do')
-        return True
+    if len(items) == 0:
+        return
 
-    resp = input('Proceed [Y/n]? ')
-    if not (len(resp) == 0 or resp[0] == 'y' or resp[0] == 'Y'):
-        print('Cancelled')
-        return False
+    if not confirm('Proceed [Y/n]? ', default=True):
+        sys.exit(2)
 
-    try:
-        # process files to import
-        for filename, group, artist, title, tags in import_items:
-            date = datetime.date.today()
-            song = Song(group, artist, title, date, None, None)
-            print(f"Importing {song}")
+    # process update items
+    for item in items:
+        item.log()
 
-            src_file = os.path.join(queue_dir, filename)
-            temp_file = src_file + '~'
-            try:
-                os.remove(temp_file)
-            except FileNotFoundError:
-                pass
-            tag_file(src_file, temp_file, tags)
+        temp_file = item.source_file + '~'
+        try:
+            os.remove(temp_file)
+        except FileNotFoundError:
+            pass
+        tag_file(item.source_file, temp_file, item.tags)
 
-            song.file_hash = get_file_hash(temp_file)
-            song.tag_hash = get_tag_hash(tags)
-            dest_file = os.path.join(context.music_dir, song.basepath())
-            os.replace(temp_file, dest_file)
+        item.song.file_hash = get_file_hash(temp_file)
+        item.song.tag_hash = get_tag_hash(item.tags)
+        dest_file = os.path.join(context.music_dir, item.song.basepath())
+        os.replace(temp_file, dest_file)
 
-            # success; update manifest now and remove source file
-            assert song.id not in context.manifest[group]
-            context.manifest[group][song.id] = song
-            os.remove(src_file)
+    # save the manifest
+    context.save_manifest()
 
-        # process files to retag
-        for song, tags, expected_tag_hash in retag_items:
-            print(f"Retagging {song}")
-            src_file = os.path.join(context.music_dir, song.basepath())
-            temp_file = src_file + '~'
-            try:
-                os.remove(temp_file)
-            except FileNotFoundError:
-                pass
-            tag_file(src_file, temp_file, tags)
-
-            file_hash = get_file_hash(temp_file)
-            dest_file = os.path.join(context.music_dir, song.group, f'{song.artist}.{song.title}.{file_hash}.mp3')
-            os.replace(temp_file, dest_file)
-
-            # success; update manifest now and remove source file
-            song.file_hash = file_hash
-            song.tag_hash = expected_tag_hash
-            os.remove(src_file)
-
-    finally:
-        # always save the manifest
-        context.save_manifest()
-
-    return True
+    # now it should be safe to cleanup
+    for item in items:
+        os.remove(item.source_file)
 
 s = subparsers.add_parser(
     'update',
-    help='import and retag music files',
-    description='Import and retag music files.')
-s.add_argument('--auto', help='do not prompt for confirmation')
+    help='import new music and fix tags',
+    description='Import new music and fix tags.')
 s.set_defaults(func=command_update)
+
+#---------------------------------------
+# Command: maint
+#---------------------------------------
+
+def command_maint(context, args):
+    prune = args.prune
+    verify = args.verify
+    dry = args.dry_run
+    interactive = not args.yes
+
+    context.load_manifest()
+
+    ok = True
+    orphans = []
+    for group in GROUPS:
+        group_manifest = context.manifest[group]
+        try:
+            basenames = set([file for file in os.listdir(os.path.join(context.music_dir, group)) if not file.startswith('.') and file.endswith('.mp3')])
+        except FileNotFoundError:
+            basenames = set()
+        for song_id in sorted(group_manifest):
+            song = group_manifest[song_id]
+            basename = song.basename()
+
+            if basename not in basenames:
+                warn(f'missing file: {group}/{basename}')
+                ok = False
+                continue
+
+            basenames.remove(basename)
+            if not verify:
+                continue
+
+            filename = os.path.join(context.music_dir, song.basepath())
+            try:
+                file_hash = get_file_hash(filename)
+            except OSError as e:
+                err(f"{song}: failed to get file hash: {e.strerror}")
+                ok = False
+                continue
+
+            if file_hash != song.file_hash:
+                warn(f"{song}: hashes differ")
+                ok = False
+
+        for basename in sorted(basenames):
+            orphans.append(os.path.join(group, basename))
+
+    for file in orphans:
+        warn(f'orphan: {group}/{basename}')
+        if prune and not dry and (not interactive or confirm('Delete [Y/n]? ', default=True)):
+            os.remove(os.path.join(context.music_dir, file))
+        else:
+            ok = False
+
+    if not ok:
+        sys.exit(2)
+
+s = subparsers.add_parser(
+    'maint',
+    help='check and manage the music directory',
+    description='Check and manage the music directory.')
+s.add_argument('--prune', action='store_true', help='delete extraneous files')
+s.add_argument('--verify', action='store_true', help='verify file integrity')
+s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
+s.add_argument('-y', '--yes', action='store_true', help='do not prompt for confirmation')
+s.set_defaults(func=command_maint)
 
 #---------------------------------------
 # Command: pull
@@ -518,67 +569,6 @@ sp = subparsers.add_parser(
     help='print info about the manifest',
     description='Print information about the manifest.')
 sp.set_defaults(func=command_info)
-
-#---------------------------------------
-# Command: prune
-#---------------------------------------
-
-def command_prune(context, args):
-    context.load_manifest()
-    orphans = find_orphans(context.manifest, context.music_dir)
-    for file in orphans:
-        print(file)
-        if not args.dry_run:
-            os.remove(os.path.join(args.music_dir, file))
-
-s = subparsers.add_parser(
-    'prune',
-    help='remove files not referenced by the manifest',
-    description='Find and optionally delete files not referenced by the manifest.')
-s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-s.set_defaults(func=command_prune)
-
-#---------------------------------------
-# Command: check
-#---------------------------------------
-
-def command_check(context, args):
-    quiet = args.quiet
-    context.load_manifest()
-
-    ok = True
-    for group in GROUPS:
-        group_manifest = context.manifest[group]
-        song_ids = sorted(group_manifest)
-        for i in range(len(song_ids)):
-            song_id = song_ids[i]
-            song = group_manifest[song_id]
-            if istty and not quiet:
-                sys.stderr.write(f'\r\033[K[{group}] {i}/{len(song_ids)} ')
-            filename = os.path.join(context.music_dir, song.basepath())
-            try:
-                file_hash = get_file_hash(filename)
-            except FileNotFoundError:
-                err(f"{song}: file not found")
-                ok = False
-                continue
-            if file_hash != song.file_hash:
-                print(f"{song}: hashes differ")
-                ok = False
-
-    if istty and not quiet:
-        sys.stderr.write('\r\033[K')
-    if not ok:
-        sys.exit(1)
-    if not quiet:
-        print('OK')
-
-s = subparsers.add_parser(
-    'check',
-    help='check integrity of files',
-    description='Check integrity of files.')
-s.add_argument('-q', '--quiet', action='store_true', help='suppress progress and informational output')
-s.set_defaults(func=command_check)
 
 #---------------------------------------
 # Command: tag
