@@ -257,43 +257,77 @@ def save_manifest_or_abort(filename, manifest):
         err(f"failed to save '{filename}': {e.strerror}")
         sys.exit(1)
 
-# Copy files from the source directories to the target directory as necessary to satisfy the manifest.
-# If a file is not found in the target directory,
-# it is searched for in the source directories in the order provided.
-# If `dry_run` is true, the actual copy is not performed, but output is still printed.
-def sync_files(manifest, target_dir, source_dirs, dry_run):
-    ok = True
+class ADBSyncBackend:
+    def __init__(self, manifest, source_dir, target_dir):
+        self._manifest = manifest
+        self._source_dir = source_dir
+        self._target_dir = target_dir
 
-    for group in GROUPS:
-        group_manifest = manifest[group]
+    def prepare_push(self):
+        push_files = []
+        prune_files = []
 
-        # ensure the target group directory exists
-        group_dir = os.path.join(target_dir, group)
-        if not os.path.isdir(group_dir):
-            warn(f"directory '{group_dir}' doesn't exist")
-            ok = False
-            continue
+        for group in GROUPS:
+            group_manifest = self._manifest[group]
+            target_group_dir = f'{self._target_dir}/{group}'
 
-        for song_id in sorted(group_manifest):
-            song = group_manifest[song_id]
-            basepath = song.basepath()
-            target_file = os.path.join(target_dir, basepath)
-            if not os.path.exists(target_file):
-                # search source dirs for the file
-                for source_dir in source_dirs:
-                    source_file = os.path.join(source_dir, basepath)
-                    if not os.path.exists(source_file):
-                        continue
-                    print(f"Copying {basepath}")
-                    if not dry_run:
-                        with open(source_file, 'rb') as source, open(target_file, 'xb') as target:
-                            shutil.copyfileobj(source, target)
-                    break
+            # get a file list for the target group directory
+            result = subprocess.run(
+                ['adb', 'shell', f'ls \'{target_group_dir}\' | grep \'\\.mp3$\''],
+                stdout=subprocess.PIPE,
+                text=True)
+
+            if result.returncode != 0:
+                warn(f"failed to get file list for '{target_group_dir}', perhaps it doesn't exist")
+                continue
+
+            target_list = result.stdout.splitlines()
+
+            for song_id in sorted(group_manifest):
+                song = group_manifest[song_id]
+                basename = song.basename()
+
+                if basename in target_list:
+                    target_list.remove(basename)
+                    continue
+
+                # check if source directory has the file
+                source_file = os.path.join(self._source_dir, group, basename)
+                if os.path.exists(source_file):
+                    print(f"push {group}/{basename}")
+                    push_files.append((group, song.artist, song.title, song.file_hash))
                 else:
                     warn(f"could not find source for {basepath}")
-                    ok = False
 
-    return ok
+            for basename in target_list:
+                print(f"prune {group}/{basename}")
+                prune_files.append(f'{group}/{basename}')
+
+        if len(push_files) == 0 and len(prune_files) == 0:
+            return None
+
+        return push_files, prune_files
+
+    def push(self, data):
+        (push_files, prune_files) = data
+
+        for group, artist, title, file_hash in push_files:
+            filename = f'{group}/{artist}.{title}.{file_hash}.mp3'
+            source_file = os.path.join(self._source_dir, filename)
+            target_file = f'{self._target_dir}/{filename}'
+
+            print(f"Copying {filename}")
+            result = subprocess.run(['adb', 'push', source_file, target_file])
+            if result.returncode != 0:
+                err(f"adb failed")
+                return False
+
+        result = subprocess.run(['adb', 'shell', f"cd '{self._target_dir}' && rm -f {' '.join(prune_files)}"])
+        if result.returncode != 0:
+            err(f"adb failed")
+            return False
+
+        return True
 
 # Returns a list of music files that are not referenced by the manifest.
 def find_orphans(manifest, music_dir):
@@ -405,7 +439,7 @@ def command_update(context, args):
     if len(items) == 0:
         return
 
-    if not confirm('Proceed [Y/n]? ', default=True):
+    if not confirm('Proceed [Y/n]? ', True):
         sys.exit(2)
 
     # process update items
@@ -487,7 +521,7 @@ def command_maint(context, args):
 
     for file in orphans:
         warn(f'orphan: {group}/{basename}')
-        if prune and not dry and (not interactive or confirm('Delete [Y/n]? ', default=True)):
+        if prune and not dry and (not interactive or confirm('Delete [Y/n]? ', True)):
             os.remove(os.path.join(context.music_dir, file))
         else:
             ok = False
@@ -527,20 +561,46 @@ s.set_defaults(func=command_pull)
 #---------------------------------------
 
 def command_push(context, args):
-    context.load_manifest()
-    if not sync_files(context.manifest, args.target, [context.music_dir], args.dry_run):
-        sys.exit(1)
-    for file in find_orphans(context.manifest, args.target):
-        print(f"Pruning {file}")
-        if not args.dry_run:
-            os.remove(os.path.join(args.target, file))
+    backend_name = args.backend
+    dry = args.dry_run
+    interactive = not args.yes
+    target = args.target
+
+    match backend_name:
+        case 'adb':
+            if len(target) != 1:
+                err('adb backend requires 1 argument')
+                sys.exit(1)
+            context.load_manifest()
+            backend = ADBSyncBackend(context.manifest, context.music_dir, target[0])
+        case 'local':
+            if len(target) != 1:
+                err('local backend requires 1 argument')
+                sys.exit(1)
+            context.load_manifest()
+            backend = LocalSyncBackend(context.manifest, context.music_dir, target[0])
+        case _:
+            err(f"unrecognized backend '{backend_name}'")
+            sys.exit(1)
+
+    data = backend.prepare_push()
+    if data is None:
+        return # nothing to do
+    if dry:
+        return
+    if interactive and not confirm('Proceed [Y/n]? ', True):
+        sys.exit(2)
+    if not backend.push(data):
+        sys.exit(2)
 
 s = subparsers.add_parser(
     'push',
     help='copy files to destination using local manifest',
     description='Copy files to destination using local manifest.')
+s.add_argument('-b', '--backend', default='local', help='backend to use')
 s.add_argument('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-s.add_argument('target', help='target directory')
+s.add_argument('-y', '--yes', action='store_true', help='don\'t prompt for confirmation')
+s.add_argument('target', nargs='*', help='target directory')
 s.set_defaults(func=command_push)
 
 #---------------------------------------
