@@ -556,7 +556,7 @@ class AdbPushBackend:
 
         # get a file list for the target group directory
         result = subprocess.run(
-            ['adb', 'shell', f'ls \'{group_dir}\' | grep \'\\.mp3$\''],
+            ['adb', 'shell', f'ls \'{group_dir}\''],
             stdout=subprocess.PIPE,
             text=True)
 
@@ -564,27 +564,27 @@ class AdbPushBackend:
             warn(f"failed to get file list for '{group_dir}', perhaps it doesn't exist")
             return None
 
-        return set(result.stdout.splitlines())
+        return set(line for line in result.stdout.splitlines() if line.endswith('.mp3'))
 
     def get_file_list(self, manifest):
         return {group.id: self._get_group_file_list(group) for group in manifest.groups()}
 
-    def push(self, push_files, prune_files):
-        for group, artist, title, file_hash in push_files:
-            filename = f'{group}/{artist}.{title}.{file_hash}.mp3'
-            source_file = os.path.join(self._source_dir, filename)
-            target_file = f'{self._target_dir}/{filename}'
+    def push(self, root, push_files, prune_files):
+        for filepath in push_files:
+            source_file = os.path.join(root, filepath)
+            target_file = f'{self.target_dir}/{filepath}'
 
-            print(f"Copying {filename}")
+            print(f"Copying {filepath}")
             result = subprocess.run(['adb', 'push', source_file, target_file])
             if result.returncode != 0:
                 err(f"adb failed")
                 return False
 
-        result = subprocess.run(['adb', 'shell', f"cd '{self._target_dir}' && rm -f {' '.join(prune_files)}"])
-        if result.returncode != 0:
-            err(f"adb failed")
-            return False
+        if len(prune_files) > 0:
+            result = subprocess.run(['adb', 'shell', f"cd '{self.target_dir}' && rm -f {' '.join(prune_files)}"])
+            if result.returncode != 0:
+                err(f"adb failed")
+                return False
 
         return True
 
@@ -633,7 +633,7 @@ def command_push(context, args):
 
             # check if source directory has the file
             filepath = song.filepath()
-            source_file = os.path.join(root, filepath)
+            source_file = os.path.join(context.root, filepath)
             if os.path.exists(source_file):
                 print(f"push {filepath}")
                 push_files.append(filepath)
@@ -645,13 +645,13 @@ def command_push(context, args):
             print(f"prune {filepath}")
             prune_files.append(filepath)
 
-    if len(push_files) == 0 or len(prune_files) == 0:
+    if len(push_files) == 0 and len(prune_files) == 0:
         return # nothing to do
     if dry:
         return
     if interactive and not confirm('Proceed [Y/n]? ', True):
         sys.exit(2)
-    if not backend.push(push_files, prune_files):
+    if not backend.push(context.root, push_files, prune_files):
         sys.exit(1)
 
 command = commands.add_parser(
