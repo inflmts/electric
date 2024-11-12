@@ -1,10 +1,12 @@
 # Electric Music Library
 
+Curated by Daniel Li.
+
 > Is that all you've got?
 >
 > &mdash; Teminite & Boom Kitty, _The Master_
 
-Curated by Daniel Li.
+## What is it?
 
 The Electric music library is a collection of electronic music that I like,
 extracted from various places on the internet. This repository contains
@@ -29,8 +31,20 @@ The library is divided into two groups:
 ### Adding Music
 
 To songs to the library, place the MP3 files in the `queue` folder, name them
-`group.artist.title.mp3`, replacing `group`, `artist`, and `title` with the
-appropriate values, then run `electric update`.
+`<group>.<artist>.<title>.mp3`, replacing `<group>`, `<artist>`, and `<title>`
+with the appropriate values, then run `electric update`.
+
+### Transferring Files
+
+Files can be retrieved from and sent to various remotes using the `pull` and
+`push` commands. These commands accept arguments in the form
+`[<backend>:]<parameter>`, where `<backend>` defaults to `file` if omitted.
+The currently available backends are:
+
+- `file:<path>`: Local directory.
+
+- `adb:[<path>]`: Android over adb. If `<path>` is empty defaults
+  to `/storage/emulated/0/Music`.
 
 ### Maintenance
 
@@ -38,13 +52,6 @@ The `maint` command checks that all files in the manifest exist and also
 prints files that are not in the manifest. Extraneous files can be removed
 with `--prune`. The `maint` command can also verify file integrity if given
 the `--verify` option.
-
-### Retrieving Files
-
-Files can be retrieved from various remotes using the `pull` command:
-
-```
-local:
 
 ## Manifest File Format
 
