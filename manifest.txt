@@ -330,6 +330,7 @@ thefatrat infinite-power 2023-07-10 a2c5dd5acacd7a104a8adf0915686eab 3ea6dbda
 thefatrat jackpot 2023-03-05 a5fe78b2e9eb87afce60e081fe2ddaca 70ed1903
 thefatrat unity 2023-03-05 ac914b3b9577f1bab51def23be35282c cc1725db
 thefatrat xenogenesis 2023-03-05 0beb4f1ac2be34f3e8e60ed7cf14f125 baca95f3
+tn-shi synthesis 2024-11-13 b02583c7b7654fbaeed157264566467c 19f160fd
 tokyo-machine last-summer 2024-08-03 5eefa62bb88187356361ac18ee8c4c93 564033d9
 tokyo-machine rock-it 2024-08-03 c1b96c7c30a3456f496d1a2a6d330d5e 728122c7
 tokyo-machine turbo 2024-08-03 690beded59f03f922fb59cb529c801d3 d63e4869
