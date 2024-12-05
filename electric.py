@@ -52,7 +52,8 @@ GROUPIDS = [groupid for groupid, _ in GROUPS]
 
 ARTIST_NAME_OVERRIDES = {
     'a-39': 'A-39',
-    'ex-lyd': 'EX-LYD'
+    'ex-lyd': 'EX-LYD',
+    'tn-shi': 'TN-SHI'
 }
 
 SONG_TITLE_OVERRIDES = {
