@@ -282,7 +282,7 @@ sharks prism 2023-07-09 3481619c4d6dc80dd5c84554fb71fb33 9c356df3
 shirobon break-away 2024-04-20 8464b4ee7c0e5239264c9d25a5c1048f 15ca514b
 shirobon earth 2023-07-09 d7aea99a21367e4694e624b33614f447 c9f3cbad
 shirobon mind-pulse 2023-07-09 8dbec1270158fd3932bd338f3a0f51dd 9c6abde6
-skybreak astral-bloom 2024-08-13 f077bd14b0423339bdde021f3805ddd0 c618bc12
+skybreak astral-blossom 2024-08-13 f077bd14b0423339bdde021f3805ddd0 c618bc12
 skybreak cryolite 2022-10-20 6a7fda4bc1150a7a72f37f0f156acceb 817e8178
 skybreak crystal-heart 2022-10-20 37a3f71ab69bced8c14edb4bae3d898c 2d9e0723
 skybreak journeys-end 2022-10-20 6895285835bfd734d840772068431682 35ac8da2
