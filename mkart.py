@@ -28,9 +28,17 @@ args = parser.parse_args()
 group = args.group
 match group:
     case 'core':
-        background_gradient = '#ff0050-#800028'
+        background_args = [
+            '-size', '500x500', '-define', 'gradient:angle=135',
+            'gradient:#ff30e0-#ff0030'
+        ]
     case 'extra':
-        background_gradient = '#0050ff-#002880'
+        background_args = [
+            'sus.png',
+            '-size', '500x500', '-define', 'gradient:angle=135',
+            'gradient:#ff30e0c0-#0030ffc0',
+            '-compose', 'over', '-composite'
+        ]
     case _:
         raise Exception(f'Invalid group: \'{group}\'')
 
@@ -40,15 +48,16 @@ if output_file is None:
 
 magick_args = [
     '-seed', '1369616726',
-    '-size', '500x500', '-define', 'gradient:radii=353.553,353.553',
-    'radial-gradient:' + background_gradient,
-
+    *background_args,
+    '-define', 'gradient:radii=150,150',
+    'radial-gradient:#ffffff80-transparent',
+    '-compose', 'over', '-composite',
     '(',
         'canvas:transparent',
-        '-fill', 'none', '-stroke', '#ffffff60', '-strokewidth', '10',
-        '-draw', 'circle 250 250 250 100',
-        '-stroke', '#ffffff40', '-strokewidth', '20',
-        '-draw', 'circle 250 250 250 85',
+        '-fill', 'none',
+        '-stroke', '#ffffff60', '-strokewidth', '10', '-draw', 'circle 250 250 250 100',
+        '-stroke', '#ffffff40', '-strokewidth', '20', '-draw', 'circle 250 250 250 85',
+        '-stroke', '#00000020', '-strokewidth', '30', '-draw', 'circle 250 250 250 60',
         '(',
             '-size', '200x1', 'canvas:black', '-colorspace', 'gray', '+noise', 'random',
             '-evaluate', 'pow', '3',
@@ -56,12 +65,12 @@ magick_args = [
             '-define', 'distort:viewport=500x500', '-distort', 'polar', '353.553,0,250,250',
             '-compose', 'mathematics', '-define', 'compose:args=1,-0.5,0,0.5', '-size', '500x500',
             '(',
-                '-define', 'gradient:direction=east', 'gradient:white-black',
+                '-define', 'gradient:angle=90', 'gradient:white-black',
                 '-colorspace', 'gray', '-function', 'polynomial', '4,-6,3,0',
                 '-clone', '0', '-composite',
             ')',
             '(',
-                '-define', 'gradient:direction=south', 'gradient:white-black',
+                '-define', 'gradient:angle=180', 'gradient:white-black',
                 '-colorspace', 'gray', '-function', 'polynomial', '4,-6,3,0',
                 '-clone', '0', '-composite',
             ')',
