@@ -190,6 +190,7 @@ geoplex reignite 2023-12-20 8ac19bf6cf2f4d94abb9e66997a519ea 51be5a8d
 geoplex subvert 2023-12-20 b784be28f27df6a50befa7ad6b3069e3 071b1bc1
 geoxor timeless 2024-06-27 90d1cac2533aa26d9e368fe656f4a672 171f75b8
 getsix elements 2023-06-19 628acb89f9c8f6dee99d33071cea226a c672d7c6
+getsix sky-fracture 2024-12-28 b6e27fae52ccac6ff9bf4e885b086cfa da396c37
 h20ghost jester 2024-08-13 c326a1bb7716d911e0f18bf2871599a5 a515efb2
 helzspring you-gotta 2023-03-05 8db397ceafe7d496bad74450f8b6f69f 809cc1b8
 illenium dont-give-up-on-me 2023-03-05 86b2b72dd1091d1ce81370fc8f8b57a0 243b6415
@@ -282,7 +283,7 @@ sharks prism 2023-07-09 3481619c4d6dc80dd5c84554fb71fb33 9c356df3
 shirobon break-away 2024-04-20 8464b4ee7c0e5239264c9d25a5c1048f 15ca514b
 shirobon earth 2023-07-09 d7aea99a21367e4694e624b33614f447 c9f3cbad
 shirobon mind-pulse 2023-07-09 8dbec1270158fd3932bd338f3a0f51dd 9c6abde6
-skybreak astral-blossom 2024-08-13 f077bd14b0423339bdde021f3805ddd0 c618bc12
+skybreak astral-blossom 2024-08-13 75ed8a368cef9c5c0da9af2bb05bfc93 e97d628d
 skybreak cryolite 2022-10-20 6a7fda4bc1150a7a72f37f0f156acceb 817e8178
 skybreak crystal-heart 2022-10-20 37a3f71ab69bced8c14edb4bae3d898c 2d9e0723
 skybreak journeys-end 2022-10-20 6895285835bfd734d840772068431682 35ac8da2
