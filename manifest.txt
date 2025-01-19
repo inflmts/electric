@@ -133,6 +133,7 @@ cysmix fates 2024-03-25 58ebcf6b388acdb02e7a9e2ff0694a29 9b687802
 cysmix phone-me-first 2024-03-25 7863b2b998d4bb7874e3c8a5e0563357 6bae5c33
 cysmix youkai-woods 2023-01-03 c3922132f885a813b4bcdb8aad63ad17 f129342a
 delta-heavy empire 2024-06-23 4136f0637fd67033da360f992237d5ee ef52541a
+delta-heavy paradise-lost 2025-01-18 7e1013785bf45b9f1570dba26a5bfc68 01ed0b0a
 derpcat as-life-goes-by 2024-11-17 3e9cfc2a8783b2cc963447160fbecd34 a02a6b7a
 derpcat bloom 2024-11-17 68928fb515198c7df8a18651a588c859 1410c9f9
 derpcat collapse 2023-03-05 d9ffe6e3226cfa867d3f030d3f07068a c82160cd
@@ -248,6 +249,7 @@ miyolophone the-price-is-right 2023-03-17 b9c55e4b5c6d1f268594fae4ae6afbe3 32c14
 miyolophone worldbox 2023-04-08 8e606400ea584ccb8c40405789f0094e bfaebee0
 moonlchan backroom-chills 2022-11-23 66983956c1dc7de86f59ea91f63058db 5e6d1624
 nanobii chipland 2024-06-27 485f5b5b540ef1aa6a5cade679fee698 ef323bed
+nasko cobalt 2025-01-18 f1ae64998d11aaf5f419d2281dcc08e9 d28d8c14
 noisestorm breakdown-vip 2024-06-23 ee86092ef7d1a25364c188009dd6ccd0 46504796
 nokae interim 2023-03-05 b3765a08b654b1039d4af390de1ff4b9 455d4b1a
 nokturnal destruction 2023-03-05 48688fca5062c2f1cf7000286590f65f 047b4cd4
