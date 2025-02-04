@@ -25,10 +25,9 @@
 ##############################################################################
 
 import click
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 import datetime
 import hashlib
-import operator
 import os
 import re
 import shutil
@@ -41,8 +40,6 @@ import zlib
 sys.stdout.reconfigure(newline='\n')
 
 default_root = os.path.dirname(os.path.realpath(__file__))
-mhash_len = 64
-mabbrev_len = 12
 
 # The list of valid groups.
 GROUPS = ('core', 'extra')
@@ -212,7 +209,7 @@ class Song:
             artist.upper().replace('-', ' '),
             f'Electric {id:04}')
         self.tdata = id3_encode(self.tags)
-        self.thash = '%08x' % (0xffffffff & zlib.crc32(self.tdata))
+        self.thash = '%04x' % (zlib.crc32(self.tdata) >> 16 & 0xffff)
 
     def __str__(self):
         return f'E{self.id:04}[{self.group}.{self.artist}.{self.title}]'
@@ -221,13 +218,13 @@ class Song:
     def mabbrev(self):
         if self.mhash is None:
             return None
-        return self.mhash[:mabbrev_len]
+        return self.mhash[:12]
 
     @property
     def basename(self):
         if self.mhash is None:
             return None
-        return f'{self.artist}.{self.title}.{self.thash}{self.mabbrev}.mp3'
+        return f'{self.artist}.{self.title}.{self.mabbrev}{self.thash}.mp3'
 
     @property
     def basepath(self):
@@ -297,7 +294,7 @@ def read_catalog(file):
     artist_regex = re.compile(r'[0-9a-z]+(?:-[0-9a-z]+)*')
     title_regex = artist_regex
     date_regex = re.compile(r'([0-9]{4})-([0-9]{2})-([0-9]{2})')
-    mhash_regex = re.compile(r'[0-9a-f]{%d}' % mhash_len)
+    mhash_regex = re.compile(r'[0-9a-f]{64}')
 
     catalog = Catalog()
     ln = 0
@@ -458,31 +455,11 @@ def main(ctx, root):
 #-----------------------------------------------------------------------------
 
 class LocalFile:
-    def __init__(self, path, thash, mabbrev):
+    def __init__(self, path, mabbrev, thash):
         self.path = path
-        self.thash = thash
         self.mabbrev = mabbrev
+        self.thash = thash
         self.preserve = False
-
-class PruneAction:
-    def __init__(self, path):
-        self.path = path
-
-class ImportAction:
-    def cleanup(self):
-        os.remove(os.path.join(queue_dir, self.file + '~'))
-
-# Replace is the only operation that will modify an existing song in the
-# catalog. This is not something that I expect will occur often. The old
-# file (if it exists) is not deleted and will show up as an orphan in the
-# next invocation of update.
-
-class ReplaceAction:
-    def cleanup(self):
-        os.remove(os.path.join(queue_dir, self.file))
-
-def sync(self, catalog, library):
-    pass
 
 @main.command()
 @click.option('-n', '--dry-run', is_flag=True, help='don\'t do anything, only show what would happen')
@@ -495,7 +472,7 @@ def update(context, dry_run, prune, no_import):
 
     import_file_regex = re.compile(r'([a-z]+)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.mp3')
     replace_file_regex = re.compile(r'\+(\d+)\.mp3')
-    basename_regex = re.compile(r'.*\.(?:([0-9a-f]{8})|x{8})([0-9a-f]{%d})\.mp3' % mabbrev_len)
+    basename_regex = re.compile(r'.*\.([0-9a-f]{12})(?:([0-9a-f]{4})|x{4})\.mp3')
 
     # Load catalog
     catalog = context.catalog()
@@ -588,12 +565,8 @@ def update(context, dry_run, prune, no_import):
         srcfile = os.path.join(root, srcpath)
         dstfile = os.path.join(root, song.basepath)
         if retag:
-            tmpfile = os.path.join(root, song.group, f'{song.artist}.{song.title}.xxxxxxxx{song.mabbrev}.mp3')
-            safe_rename(srcfile, tmpfile)
-            id3_write(tmpfile, song.tdata)
-            safe_rename(tmpfile, dstfile)
-        else:
-            safe_rename(srcfile, dstfile)
+            id3_write(srcfile, song.tdata)
+        safe_rename(srcfile, dstfile)
 
     # Process import/replace actions
     cleanup_files = []
