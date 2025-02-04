@@ -18,16 +18,17 @@
 #
 #   Dependencies:
 #     - python
+#     - click
 #     - adb (optional): for adb backend
 #     - colorama (optional): for windows color support
 #
 ##############################################################################
 
+import click
 from collections import defaultdict, namedtuple
 import datetime
 import hashlib
 import operator
-import optparse
 import os
 import re
 import shutil
@@ -39,17 +40,9 @@ import zlib
 # output newline on all platforms
 sys.stdout.reconfigure(newline='\n')
 
-# fix colors on windows
-if sys.platform == 'win32':
-    try:
-        import colorama
-        colorama.just_fix_windows_console()
-    except ImportError:
-        pass
-
 default_root = os.path.dirname(os.path.realpath(__file__))
 mhash_len = 64
-mhasha_len = 12
+mabbrev_len = 12
 
 # The list of valid groups.
 GROUPS = ('core', 'extra')
@@ -63,17 +56,6 @@ GROUPS = ('core', 'extra')
 # For the majority of cases, this works fabulously. There are of course a few
 # exceptions. For those, we override the automatically generated tag values
 # here.
-
-ARTIST_NAME_OVERRIDES = {
-    'a-39': 'A-39',
-    'ex-lyd': 'EX-LYD',
-    'tn-shi': 'TN-SHI'
-}
-
-SONG_TITLE_OVERRIDES = {
-    ('au5', 'moonland-derpcat-remix'): 'MOONLAND (DERPCAT REMIX)',
-    ('camellia', '1f1e33'): '#1F1E33'
-}
 
 ##############################################################################
 # Utility Functions
@@ -104,6 +86,12 @@ def read_exact(f, size):
         raise EOFError('Unexpected end of file')
     return buf
 
+def safe_rename(src, dest):
+    # not actually safe
+    if os.path.exists(dest):
+        raise FileExistsError(dest)
+    os.rename(src, dest)
+
 ##############################################################################
 # Tags
 ##############################################################################
@@ -115,97 +103,76 @@ mp3_frequency_table = [44100, 48000, 32000, None]
 def id3_encode_uint28(x):
     return bytes((x >> 21 & 0x7f, x >> 14 & 0x7f, x >> 7 & 0x7f, x & 0x7f))
 
-def id3_frame(id, content):
+def id3_encode_frame(id, content):
     return id + id3_encode_uint28(len(content)) + b'\x00\x00' + content
 
-def id3_text(id, content):
-    return id3_frame(id, b'\x03' + content.encode('utf-8') + b'\x00')
+def id3_encode_text(id, content):
+    return id3_encode_frame(id, b'\x03' + content.encode('utf-8') + b'\x00')
 
-class Tags:
-    def __init__(self, songid, artistid, titleid):
-        self.title = titleid.upper().replace('-', ' ')
-        self.artist = artistid.upper()
-        self.album = f'Electric E{songid:04}'
+def id3_encode(tags):
+    """Encode song tags as a 256-byte ID3v2.4.0 header."""
+    data = (id3_header
+        + id3_encode_text(b'TIT2', tags.title)
+        + id3_encode_text(b'TPE1', tags.artist)
+        + id3_encode_text(b'TALB', tags.album))
+    if len(data) > 256:
+        raise ValueError('ID3 tag exceeds 256 bytes')
+    return data.ljust(256, b'\x00')
 
-        # encode the tag values as a fixed 256-byte ID3v2.4.0 tag
-        data = (id3_header
-            + id3_text(b'TIT2', self.title)
-            + id3_text(b'TPE1', self.artist)
-            + id3_text(b'TALB', self.album))
-        if len(data) > 256:
-            raise Exception('ID3 tag too long')
-        data = data.rjust(256, b'\x00')
-        assert len(data) == 256
-        self.data = data
-        self.hash = 0xffffffff & zlib.crc32(data)
-
-    def write(self, file):
-        """Write tags to the specified file in-place."""
-        with open(file, 'r+b') as f:
-            # make sure the header size is actually 256 bytes
-            if f.read(10) != id3_header:
-                raise Exception('File header does not match')
-            assert f.tell() == 10
-            f.write(self.data[10:256])
+def id3_write(file, data):
+    assert len(data) == 256
+    with open(file, 'r+b') as f:
+        if f.read(10) != id3_header:
+            raise Exception('Invalid ID3 header')
+        assert f.tell() == 10
+        f.write(data[10:])
 
 def id3_decode_int28(b):
     return (b[0] & 0x7f) << 21 | (b[1] & 0x7f) << 14 | (b[2] & 0x7f) << 7 | (b[3] & 0x7f)
 
 def id3_skip(f):
+    """Skip the ID3 header in a seekable readable stream."""
     header = read_exact(f, 10)
     if header[0:3] != b'ID3':
         raise Exception('id3: invalid magic')
     if header[5] != 0:
         raise Exception(f'id3: unrecognized flags ({header[5]:8b})')
     size = id3_decode_int28(header[6:10])
-    read_exact(f, size)
+    f.seek(size, os.SEEK_CUR)
 
-def mp3_read_frame(f):
-    header = f.read(4)
-    if not header:
-        return None
-    b0, b1, b2, b3 = header
-    if b0 != 0b11111111 or b1 & 0b11111110 != 0b11111010:
-        raise Exception('Unrecognized frame header')
-    bitrate = mp3_bitrate_table[b2 >> 4 & 0b1111]
-    if bitrate is None:
-        raise Exception('Invalid bitrate index')
-    freq = mp3_frequency_table[b2 >> 2 & 0b11]
-    if freq is None:
-        raise Exception('Invalid frequency index')
-    padding = b2 >> 1 & 0b1
-    if b2 & 0b1:
-        raise Exception('Private bit set')
-    if b3 & 0b11:
-        raise Exception('Emphasis bit set')
-    size = 144000 * bitrate // freq + padding
-    data = read_exact(f, size - 4)
-    return bitrate, freq, data
+#def mp3_read_frame(f):
+#    """Read an MP3 frame."""
+#    header = f.read(4)
+#    if not header:
+#        return None
+#    b0, b1, b2, b3 = header
+#    if b0 != 0b11111111 or b1 & 0b11111110 != 0b11111010:
+#        raise Exception('Unrecognized frame header')
+#    bitrate = mp3_bitrate_table[b2 >> 4 & 0b1111]
+#    if bitrate is None:
+#        raise Exception('Invalid bitrate index')
+#    freq = mp3_frequency_table[b2 >> 2 & 0b11]
+#    if freq is None:
+#        raise Exception('Invalid frequency index')
+#    padding = b2 >> 1 & 0b1
+#    if b2 & 0b1:
+#        raise Exception('Private bit set')
+#    if b3 & 0b11:
+#        raise Exception('Emphasis bit set')
+#    size = 144000 * bitrate // freq + padding
+#    return header + read_exact(f, size - 4)
 
-def mp3_normalize(input, output, tags):
+def mp3_normalize(inf, outf, tdata):
+    """Replace the ID3 header and calculate the mhash."""
+    id3_skip(inf)
+    outf.write(tdata)
     sha256 = hashlib.sha256()
-
-    id3_skip(input)
-    output.write(tags.data)
-
-    # detect xing/info/lame frame
-    frame = mp3_read_frame(input)
-    if frame is None:
-        raise Exception('No mp3 data')
-    cbitrate, cfreq, data = frame
-    if data[0x20:0x24] in (b'Xing', b'Info'):
-        pass # skip
-    else:
+    buf = bytearray(8192)
+    view = memoryview(buf)
+    while size := inf.readinto1(buf):
+        data = view[:size]
         sha256.update(data)
-        output.write(data)
-
-    while (frame := mp3_read_frame(input)) is not None:
-        bitrate, freq, data = frame
-        if bitrate != cbitrate or freq != cfreq:
-            raise Exception('Non-constant bitrate and/or frequency')
-        sha256.update(data)
-        output.write(data)
-
+        outf.write(data)
     return sha256.hexdigest()
 
 ##############################################################################
@@ -218,10 +185,8 @@ class Song:
     """
     Represents a song in the catalog.
 
-    The `id` attribute is readonly. All other attributes except for `mhash`
-    are also currently readonly, but this may change in the future. This is
-    because the song tags would need to be recomputed if the artist or title
-    ever did change.
+    All attributes are readonly except for `mhash`. Note that changing `mhash`
+    will cause the computed path to change as well.
 
     The `mhash` attribute may be None, which indicates that the song is not
     associated with a file. This can occur for a few reasons:
@@ -242,24 +207,31 @@ class Song:
         self.title = title
         self.date = date
         self.mhash = mhash
-        self._tags = None
+        self.tags = SongTags(
+            title.upper().replace('-', ' '),
+            artist.upper().replace('-', ' '),
+            f'Electric {id:04}')
+        self.tdata = id3_encode(self.tags)
+        self.thash = '%08x' % (0xffffffff & zlib.crc32(self.tdata))
 
     def __str__(self):
         return f'E{self.id:04}[{self.group}.{self.artist}.{self.title}]'
 
     @property
-    def mhasha(self):
-        return self.mhash[:mhasha_len]
+    def mabbrev(self):
+        if self.mhash is None:
+            return None
+        return self.mhash[:mabbrev_len]
 
     @property
-    def tags(self):
-        if self._tags is None:
-            self._tags = Tags(self.id, self.artist, self.title)
-        return self._tags
+    def basename(self):
+        if self.mhash is None:
+            return None
+        return f'{self.artist}.{self.title}.{self.thash}{self.mabbrev}.mp3'
 
     @property
-    def thash(self):
-        return self.tags.hash
+    def basepath(self):
+        return os.path.join(self.group, self.basename)
 
     def write(self, f):
         id = self.id
@@ -269,14 +241,6 @@ class Song:
         date = self.date.strftime('%Y-%m-%d')
         mhash = self.mhash
         f.write(f'{id} {group} {artist} {title} {date} {mhash}\n')
-
-    @property
-    def basename(self):
-        return f'{self.artist}.{self.title}.{self.thash}{self.mhasha}.mp3'
-
-    @property
-    def basepath(self):
-        return os.path.join(self.group, self.basename)
 
 ##############################################################################
 # Catalog
@@ -308,6 +272,13 @@ class Catalog:
         date = datetime.date.today()
         return self.add(self._lastid + 1, group, artist, title, date, mhash)
 
+    def replace(self, id, group, artist, title, date, mhash):
+        if id not in self._songs:
+            raise KeyError(id)
+        song = Song(id, group, artist, title, date, mhash)
+        self._songs[id] = song
+        return song
+
     def get(self, id):
         return self._songs.get(id)
 
@@ -319,16 +290,6 @@ class Catalog:
 class CatalogParseError(Exception):
     pass
 
-class CatalogParseState:
-    def __init__(self):
-        self.line = 0
-
-    def inc(self):
-        self.line += 1
-
-    def fail(self, message):
-        raise CatalogParseError(f'line {self.line}: {message}')
-
 def read_catalog(file):
     """Read the catalog from a file object."""
 
@@ -339,53 +300,56 @@ def read_catalog(file):
     mhash_regex = re.compile(r'[0-9a-f]{%d}' % mhash_len)
 
     catalog = Catalog()
-    state = CatalogParseState()
+    ln = 0
+
+    def fail(message):
+        raise CatalogParseError(f'line {ln}: {message}')
 
     for line in file:
         # increment line number before the loop to catch continue
-        state.inc()
+        ln += 1
         # remove trailing newline
         line = line[:-1]
 
         fields = line.split(' ')
         if len(fields) != 6:
-            state.fail(f'Expected 6 fields but {len(fields)} present')
+            fail(f'Expected 6 fields but {len(fields)} present')
         id, group, artist, title, date, mhash = fields
 
         if not id_regex.fullmatch(id):
-            state.fail(f'Invalid id {id!r}')
+            fail(f'Invalid id {id!r}')
         id = int(id)
 
         if group not in GROUPS:
-            state.fail(f'Invalid group {group!r}')
+            fail(f'Invalid group {group!r}')
 
         if not artist_regex.fullmatch(artist):
-            state.fail(f'Invalid artist {artist!r}')
+            fail(f'Invalid artist {artist!r}')
 
         if not title_regex.fullmatch(title):
-            state.fail(f'Invalid title {title!r}')
+            fail(f'Invalid title {title!r}')
 
         if not (match := date_regex.fullmatch(date)):
-            state.fail(f'Invalid date {date!r}')
+            fail(f'Invalid date {date!r}')
         y, m, d = match.groups()
         date = datetime.date(int(y), int(m), int(d))
 
         if not mhash_regex.fullmatch(mhash):
-            state.fail(f'Invalid mhash {mhash!r}')
+            fail(f'Invalid mhash {mhash!r}')
 
         catalog.add(id, group, artist, title, date, mhash)
 
     return catalog
 
 ##############################################################################
-# Remote Backends
+# Library Backends
 ##############################################################################
 
-remote_backends = {}
+library_backends = {}
 
-def remote_backend(name):
+def library_backend(name):
     def decorator(cls):
-        remote_backends[name] = cls
+        library_backends[name] = cls
         return cls
     return decorator
 
@@ -401,19 +365,11 @@ def create_backend(param):
         sys.exit(1)
     return remote_backends[name](param)
 
-@remote_backend('file')
+@library_backend('file')
 class FileBackend:
+
     def __init__(self, param):
         self.root = param
-
-    def list(self):
-        return {f'{groupid}/{file}'
-                for groupid in GROUPIDS
-                for file in os.listdir(os.path.join(self.root, groupid))
-                if not file.startswith('.') and file.endswith('.mp3')}
-
-    def has(self, filepath):
-        return os.path.exists(os.path.join(self.root, filepath))
 
     def pull(self, local_root, pull_files):
         for filepath in pull_files:
@@ -432,7 +388,7 @@ class FileBackend:
             msg(f"Removing {filepath}")
             os.remove(os.path.join(self.root, filepath))
 
-@remote_backend('adb')
+@library_backend('adb')
 class AdbBackend:
     def __init__(self, param):
         self.root = param if len(param) else '/storage/emulated/0/Music'
@@ -471,268 +427,203 @@ class AdbBackend:
 # Command Line Parsing
 ##############################################################################
 
-commands = {}
-
-def command():
-    def decorator(fn):
-        commands[fn.__name__] = fn
-        return fn
-    return decorator
-
-class OptionParser(optparse.OptionParser):
-    def error(self, message):
-        err(message)
-        sys.exit(2)
-
 class Context:
-    def __init__(self):
+    def __init__(self, root):
+        self.root = root
+        self.catalog_file = os.path.join(root, 'catalog.txt')
         self._catalog = None
 
-    def load_catalog(self):
+    def catalog(self):
         if self._catalog is None:
-            with open(self.catalog_file) as f:
-                self._catalog = read_catalog(f)
+            self.load_catalog()
+        return self._catalog
+
+    def load_catalog(self):
+        with open(self.catalog_file) as f:
+            self._catalog = read_catalog(f)
         return self._catalog
 
     def save_catalog(self):
         with open(self.catalog_file, 'w', newline='\n') as f:
             self._catalog.write(f)
 
-def main():
-    parser = OptionParser()
-    parser.disable_interspersed_args()
-    parser.add_option('-r', '--root', metavar='DIR', default=default_root, help='root directory [default: %default]')
-    opts, args = parser.parse_args()
-
-    context = Context()
-    context.root = opts.root
-    context.catalog_file = os.path.join(opts.root, 'catalog.txt')
-
-    if args:
-        func = commands.get(args[0])
-        if func is None:
-            parser.error(f'invalid command {args[0]!r}')
-        args[0] = f'{sys.argv[0]} {args[0]}'
-        sys.argv = args
-        func(context)
-    else:
-        parser.print_help()
-        sys.exit(2)
+@click.group()
+@click.option('-r', '--root', metavar='DIR', default=default_root, show_default=True, help='root directory')
+@click.pass_context
+def main(ctx, root):
+    ctx.obj = Context(root)
 
 #-----------------------------------------------------------------------------
 # Command: update
 #-----------------------------------------------------------------------------
 
-@command()
-def update(context):
-    parser = OptionParser(usage='%prog [options]')
-    parser.add_option('-n', '--dry-run', action='store_true', help='don\'t do anything, only show what would happen')
-    parser.add_option('--prune', action='store_true', help='prune extraneous music files')
-    parser.add_option('--no-import', action='store_true', help='do not check for music to import')
-    opts, args = parser.parse_args()
+class LocalFile:
+    def __init__(self, path, thash, mabbrev):
+        self.path = path
+        self.thash = thash
+        self.mabbrev = mabbrev
+        self.preserve = False
 
+class PruneAction:
+    def __init__(self, path):
+        self.path = path
+
+class ImportAction:
+    def cleanup(self):
+        os.remove(os.path.join(queue_dir, self.file + '~'))
+
+# Replace is the only operation that will modify an existing song in the
+# catalog. This is not something that I expect will occur often. The old
+# file (if it exists) is not deleted and will show up as an orphan in the
+# next invocation of update.
+
+class ReplaceAction:
+    def cleanup(self):
+        os.remove(os.path.join(queue_dir, self.file))
+
+def sync(self, catalog, library):
+    pass
+
+@main.command()
+@click.option('-n', '--dry-run', is_flag=True, help='don\'t do anything, only show what would happen')
+@click.option('--prune', is_flag=True, help='prune extraneous music files')
+@click.option('--no-import', is_flag=True, help='do not check for music to import')
+@click.pass_obj
+def update(context, dry_run, prune, no_import):
     root = context.root
-    dry_run = opts.dry_run
-    prune = opts.prune
-    no_import = opts.no_import
     queue_dir = os.path.join(root, 'queue')
 
     import_file_regex = re.compile(r'([a-z]+)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.mp3')
-    replace_file_regex = re.compile(r'\+E(\d{4})\.mp3')
-    basename_regex = re.compile(r'.*\.(?:([0-9a-f]{8})|x{8})([0-9a-f]{%d})\.mp3$' % mhasha_len)
+    replace_file_regex = re.compile(r'\+(\d+)\.mp3')
+    basename_regex = re.compile(r'.*\.(?:([0-9a-f]{8})|x{8})([0-9a-f]{%d})\.mp3' % mabbrev_len)
 
-    class Source:
-        def __init__(self, path, thash, mhasha):
-            self.path = path
-            self.thash = thash
-            self.mhasha = mhasha
-            self.used = False
+    # Load catalog
+    catalog = context.catalog()
 
-    class RenameAction:
-        def __init__(self, song, source):
-            self.song = song
-            self.source = source
-
-        def exec(self):
-            os.rename(os.path.join(root, song.basepath),
-                      os.path.join(root, source.path))
-
-    class RetagAction:
-        def __init__(self, song, source):
-            self.song = song
-            self.source = source
-
-        def exec(self):
-            song = self.song
-            source = self.source
-            tmpfile = os.path.join(root, song.group, f'{song.artist}.{song.title}.xxxxxxxx{song.mhasha}.mp3')
-            os.rename(os.path.join(root, source.path), tmpfile)
-            song.tags.write(tmpfile)
-            os.rename(tmpfile, os.path.join(root, song.basepath))
-
-    class PruneAction:
-        def __init__(self, path):
-            self.path = path
-
-    class ImportAction:
-        def __init__(self, group, artist, title, tags, date, file):
-            self.group = group
-            self.artist = artist
-            self.title = title
-            self.tags = tags
-            self.date = date
-            self.file = file
-
-        def exec(self):
-            infile = os.path.join(queue_dir, self.file)
-            outfd, outfile = tempfile.mkstemp(prefix='import-', suffix='.mp3~', dir=queue_dir)
-            with open(infile, 'rb') as input, open(outfd, 'wb') as output:
-                mhash = mp3_normalize(input, output, tags)
-            song = catalog.register(group, artist, title, mhash)
-            os.rename(outfile, os.path.join(root, song.basepath))
-            os.rename(infile, infile + '~')
-
-        def cleanup(self):
-            os.remove(os.path.join(queue_dir, self.file + '~'))
-
-    # Replace is the only operation that will modify an existing song in the
-    # catalog. This is not something that I expect will occur often. The old
-    # file (if it exists) is not deleted and will show up as an orphan in the
-    # next invocation of update.
-
-    class ReplaceAction:
-        def __init__(self, song, file):
-            self.song = song
-            self.file = file
-
-        def exec(self):
-            infile = os.path.join(queue_dir, self.file)
-            outfd, outfile = tempfile.mkstemp(prefix='replace-', suffix='.mp3~', dir=queue_dir)
-            with open(infile, 'rb') as input, open(outfd, 'wb') as output:
-                mhash = mp3_normalize(input, output, self.song.tags)
-            song.mhash = mhash
-            os.rename(outfile, os.path.join(root, song.basepath))
-
-        def cleanup(self):
-            os.remove(os.path.join(queue_dir, self.file))
-
-    # load catalog
-    catalog = context.load_catalog()
-    actions = []
-
-    # get a list of potential file sources
-    local_sources_by_path = {}
-    local_sources_by_mhasha = {}
+    # Get a list of files
+    local_files = {}
     for group in GROUPS:
-        for name in os.listdir(os.path.join(context.root, group)):
-            if name.startswith('.') or not name.endswith('.mp3'):
-                continue
-            match = basename_regex.match(name)
-            if not match:
-                warn(f'ignoring file: {group}/{name}')
-                continue
-            path = os.path.join(group, name)
-            thash, mhasha = match.groups()
-            source = LocalUpdateSource(path, thash, mhasha)
-            local_sources_by_path[path] = source
-            local_sources_by_mhasha.setdefault(mhasha, source)
+        for name in os.listdir(os.path.join(root, group)):
+            name = os.path.normcase(name)
+            if not name.startswith('.') and (mat := basename_regex.fullmatch(name)):
+                path = group + os.sep + name
+                local_files[path] = LocalFile(path, mat[1], mat[2])
 
-    # process queue directory for imports & replacements
+    # Find songs without a file
+    missing = []
+    for song in catalog:
+        if song.mhash is None:
+            continue
+        file = local_files.get(song.basepath)
+        if file is None:
+            missing.append(song)
+        else:
+            file.preserve = True
+
+    # Find files to rename/retag
+    rename_actions = []
+    for song in missing:
+        for file in local_files.values():
+            if file.mabbrev != song.mabbrev or file.preserve:
+                continue
+            file.preserve = True
+            retag = song.thash != file.thash
+            msg(f'\033[1;36m** {"retag" if retag else "rename"}:\033[0m {song}')
+            rename_actions.append((song, file.path, retag))
+            break
+        else:
+            warn(f'unable to find source for {song}')
+
+    # Process queue directory for imports/replacements
+    import_actions = []
     if not no_import:
-        for entry in sorted(os.scandir(queue_dir), key=lambda entry: entry.stat().st_mtime_ns):
-            file = entry.name
-            match = import_file_regex.fullmatch(file)
-            if match:
+        # Sort by modification time, oldest first
+        entries = sorted(os.scandir(queue_dir),
+                         key=lambda entry: entry.stat().st_mtime_ns)
+
+        for entry in entries:
+            name = entry.name
+            if match := import_file_regex.fullmatch(name):
                 group, artist, title = match.groups()
                 if group not in GROUPS:
                     warn(f'{file}: invalid group {group!r}')
                     continue
-                tags = Tags(None, artist, title)
-                date = datetime.date.today()
-
-                msg(f'\033[1;32mimport:\033[0m {song}')
-                msg(f'  title: {tags.title}')
-                msg(f'  artist: {tags.artist}')
-                msg(f'  album: {tags.album}')
-                actions.append(ImportAction(group, artist, title, tags, date, file))
+                song = catalog.register(group, artist, title, None)
+                msg(f'\033[1;32m>>import:\033[0m {song}')
+                msg(f'    title: {song.tags.title}')
+                msg(f'    artist: {song.tags.artist}')
+                msg(f'    album: {song.tags.album}')
+                import_actions.append((song, name))
                 continue
-
-            match = replace_file_regex.fullmatch(file)
-            if match:
+            if match := replace_file_regex.fullmatch(name):
                 id = int(match.group(1))
                 song = catalog.get(id)
                 if song is None:
                     warn(f'{file}: song E{id:04} doesn\'t exist')
                     continue
-
-                msg(f'\033[1;31mreplace:\033[0m {song}')
-                song.mtime = None
-                actions.append(ReplaceAction(song, file))
+                msg(f'\033[1;32m** replace:\033[0m {song}')
+                import_actions.append((song, name))
                 continue
 
-    missing = []
-    for song in catalog:
-        if song.mtime is None:
-            # song is being replaced
-            continue
-        source = local_sources_by_path.get(song.basepath)
-        if source is None:
-            missing.append(song)
-        else:
-            source.used = True
-
-    # update actions
-    #
-    #   - If the source is local and unused:
-    #       - If the tag hash matches:
-    #           - Rename into place.
-    #       - If the tag hash does not match:
-    #           - Rename into untagged space.
-    #           - Retag.
-    #           - Rename into place.
-    #   - Otherwise:
-    #       - Copy and retag into temporary location.
-    #       - Rename into place.
-    #
-    for song in missing:
-        source = local_sources_by_mhasha.get(song.mhasha)
-        if source is not None and not source.used:
-            source.used = True
-            if song.thash == source.thash:
-                msg(f'\033[1;36mrename:\033[0m {song}')
-                actions.append(RenameAction(context, song, source.path))
-            else:
-                msg(f'\033[1;36mretag:\033[0m {song}')
-                actions.append(RetagAction(context, song, source.path))
-        else:
-            warn(f'unable to find source for {song}')
-
-    # prune actions
-    for source in local_sources_by_path.values():
-        if not source.used:
+    # Find files to prune
+    prune_actions = []
+    for file in local_files.values():
+        if not file.preserve:
             if prune:
-                msg(f'\033[1;31prune:\033[0m {source.path}')
-                actions.append(PruneAction(context, source.path))
+                msg(f'\033[1;31prune:\033[0m {file.path}')
+                prune_actions.append(file.path)
             else:
-                warn(f'orphan: {source.path}')
+                warn(f'orphan: {file.path}')
 
-    # quit early if nothing to do
-    if not actions:
+    # Quit early if nothing to do
+    if not (rename_actions or import_actions or prune_actions):
         return
 
     if dry_run or not confirm('Proceed [Y/n]? ', True):
         sys.exit(2)
 
-    # process actions
-    for action in actions:
-        action.exec()
+    # Process rename/retag actions
+    for song, srcpath, retag in rename_actions:
+        msg(f'Renaming {srcpath} -> {song.basepath}')
+        srcfile = os.path.join(root, srcpath)
+        dstfile = os.path.join(root, song.basepath)
+        if retag:
+            tmpfile = os.path.join(root, song.group, f'{song.artist}.{song.title}.xxxxxxxx{song.mabbrev}.mp3')
+            safe_rename(srcfile, tmpfile)
+            id3_write(tmpfile, song.tdata)
+            safe_rename(tmpfile, dstfile)
+        else:
+            safe_rename(srcfile, dstfile)
 
-    # save the catalog
-    context.save_catalog()
+    # Process import/replace actions
+    cleanup_files = []
+    for song, name in import_actions:
+        msg(f'Fixing {song}')
+        srcfile = os.path.join(queue_dir, name)
+        tmpfd, tmpfile = tempfile.mkstemp(prefix='import-', suffix='.mp3~', dir=queue_dir)
+        with open(srcfile, 'rb') as srcf, open(tmpfd, 'wb') as tmpf:
+            mhash = mp3_normalize(srcf, tmpf, song.tdata)
+        song.mhash = mhash
+        # The correct `dstpath` is only known after calculating the mhash
+        dstfile = os.path.join(root, song.basepath)
+        safe_rename(tmpfile, dstfile)
+        cleanup_files.append(srcfile)
 
-    # now it should be safe to cleanup
-    for action in actions:
-        action.cleanup()
+    # Save the catalog if necessary
+    if import_actions:
+        msg(f'Saving catalog...')
+        context.save_catalog()
+
+    # Process prune actions
+    for path in prune_actions:
+        msg(f'Removing {path}')
+        os.remove(os.path.join(root, path))
+
+    # Cleanup
+    if cleanup_files:
+        msg(f'Cleaning up...')
+        for file in cleanup_files:
+            pass #os.remove(file)
 
 #-----------------------------------------------------------------------------
 # Command: pull
@@ -751,7 +642,7 @@ def update(context):
 #    remote and the first remote that has the file will be used.
 #    """
 #    remotes = [(create_backend(remote), []) for remote in remotes]
-#    catalog = context.load_catalog()
+#    catalog = context.catalog()
 #    need_pull = False
 #
 #    for song in catalog.songs():
@@ -780,16 +671,16 @@ def update(context):
 # Command: push
 #-----------------------------------------------------------------------------
 
-#@main.command()
-#@click.option('--prune', is_flag=True, help='prune extraneous files')
-#@click.option('-n', '--dry-run', is_flag=True, help='do nothing, only show what would happen')
-#@click.option('-y', '--yes', is_flag=True, help='do not prompt for confirmation')
-#@click.argument('remote')
-#@click.pass_obj
+@main.command()
+@click.option('--prune', is_flag=True, help='prune extraneous files')
+@click.option('-n', '--dry-run', is_flag=True, help='do nothing, only show what would happen')
+@click.option('-y', '--yes', is_flag=True, help='do not prompt for confirmation')
+@click.argument('remote')
+@click.pass_obj
 def push(context, prune, dry_run, yes, remote):
     """Send files to a remote."""
     backend = create_backend(remote)
-    catalog = context.load_catalog()
+    catalog = context.catalog()
     filelist = backend.list()
     push_files = []
     prune_files = []
@@ -825,23 +716,43 @@ def push(context, prune, dry_run, yes, remote):
 # Command: info
 #-----------------------------------------------------------------------------
 
-@command()
+@main.command()
+@click.pass_obj
 def info(context):
-    parser = OptionParser()
-    parser.add_option('--dump', action='store_true', help='dump catalog to stdout')
-    opts, args = parser.parse_args()
-
-    catalog = context.load_catalog()
-
-    if opts.dump:
-        catalog.write(sys.stdout)
-        return
-
+    """Print statistics about the catalog."""
+    catalog = context.catalog()
     msg(f'{len(catalog)} songs (last: E{catalog.lastid:04})')
+
+#-----------------------------------------------------------------------------
+# Command: dump
+#-----------------------------------------------------------------------------
+
+@main.command(hidden=True)
+@click.pass_obj
+def dump(context):
+    context.catalog().write(sys.stdout)
+
+#-----------------------------------------------------------------------------
+# Command: mp3norm
+#-----------------------------------------------------------------------------
+
+@main.command(hidden=True)
+@click.argument('title')
+@click.argument('artist')
+@click.argument('album')
+@click.argument('src')
+@click.argument('dest')
+@click.pass_obj
+def mp3norm(context, title, artist, album, src, dest):
+    """Normalize an MP3 file."""
+    tdata = id3_encode(SongTags(title, artist, album))
+    with open(src, 'rb') as inf, open(dest, 'wb') as outf:
+        mhash = mp3_normalize(inf, outf, tdata)
+    print(f'mhash: {mhash}')
 
 #-----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    main()
+    main(help_option_names=['-h', '--help'])
 
 # vim:tw=78
