@@ -207,7 +207,7 @@ class Song:
         self.tags = SongTags(
             title.upper().replace('-', ' '),
             artist.upper().replace('-', ' '),
-            f'Electric {id:04}')
+            f'E{id:04}')
         self.tdata = id3_encode(self.tags)
         self.thash = '%04x' % (zlib.crc32(self.tdata) >> 16 & 0xffff)
 
