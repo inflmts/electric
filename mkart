@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-################################################################################
-# ------------------------------------------------------------------------------
-#   Electric Art
-# ------------------------------------------------------------------------------
+##############################################################################
+# ----------------------------------------------------------------------------
+#   Electric Art Generator & Dev Server
+# ----------------------------------------------------------------------------
 #
 #   Copyright (c) 2024-2025 Daniel Li
 #
 #   This software is available under the MIT License.
-#   This artwork is licensed under CC-BY-NC-SA 4.0.
 #
 #   Dependencies:
 #     - imagemagick <https://imagemagick.org>
@@ -15,121 +14,127 @@
 #   Additional dependencies for dev server:
 #     - websockets <https://pypi.org/project/websockets/>
 #
-################################################################################
+##############################################################################
 
-GROUPS = ('core', 'extra')
+import builtins
+import itertools
+import optparse
+import os
+import shlex
+import subprocess
+import sys
 
-if __name__ == '__main__':
-    import optparse
+GROUPS = ('core',) # TODO: add extra
+
+input_file = 'art.txt'
+
+def main():
     parser = optparse.OptionParser()
-    parser.add_option('-o', '--output', metavar='FILE', help='output file')
+    parser.add_option('-d', '--dump', action='store_true', help='dump generated script to stdout')
     parser.add_option('-s', '--serve', action='store_true', help='start dev server')
-    parser.add_option('--dump', action='store_true', help='dump script to stdout')
     parser.add_option('--expose', dest='host', action='store_const', const='', help='listen on all interfaces')
-    opts, args = parser.parse_args()
-    if args: parser.error('too many arguments')
-    group = 'core'
-    del optparse, parser, args
+    parser.add_option('--host', default='127.0.0.1', help='server host')
+    parser.add_option('--port', type=int, default=5050, help='server port')
+    opts, groups = parser.parse_args()
+    if groups:
+        for group in groups:
+            if group not in GROUPS:
+                parser.error(f'invalid group {group!r}')
+    else:
+        groups = GROUPS
+    if opts.serve:
+        dev(opts.host, opts.port, groups[0])
+    else:
+        build(groups, opts.dump)
 
-################################################################################
+##############################################################################
+# Core
+##############################################################################
 
-from random import Random
-from math import sin, cos, pi
+def build(groups, dump=False):
+    with open(input_file) as f:
+        generator = compile(f)
+    for group in groups:
+        output_file = os.path.join(group, 'folder.jpg')
+        script = ' '.join(
+            shlex.quote(token) for token in
+            itertools.chain(generator(group), ['-write', output_file]))
+        if dump:
+            sys.stdout.write(script)
+            sys.stdout.write('\n')
+        else:
+            subprocess.run(
+                ['magick', '-script', '-'],
+                text=True,
+                input=script,
+                check=True)
 
-random = Random('cassie is sus')
-generator = lambda f: '\n'.join(f())
+def compile_macro(lex, macros):
+    body = []
+    for token in lex:
+        if token == '-def':
+            name = next(lex)
+            if next(lex) != '{':
+                raise ValueError('Expected \'{\'')
+            macros[name] = compile_macro(lex, macros)
+        elif token == '-exec':
+            label = f'<exec, line {lex.lineno}>'
+            code = builtins.compile(next(lex), label, 'exec')
+            body.append(('exec', code))
+        elif token == '-eval':
+            label = f'<eval, line {lex.lineno}>'
+            code = builtins.compile(next(lex), label, 'eval')
+            body.append(('eval', code))
+        elif token == '-inject':
+            label = f'<inject, line {lex.lineno}>'
+            name, _, arg = next(lex).partition(':')
+            macro = macros[name]
+            code = builtins.compile(arg, label, 'eval') if arg else None
+            body.append(('inject', macro, code))
+        elif token == '{':
+            body.append(('context', compile_macro(lex, macros)))
+        elif token == '}':
+            break
+        else:
+            body.append(token)
+    return body
 
-def polygon(n, r, o=0):
-    return ' '.join(str(r*f(2*(i-o)*pi/n)) for i in range(n) for f in (sin, cos))
+def execute_macro(body, scope, top=False):
+    for item in body:
+        if not isinstance(item, tuple):
+            yield item
+            continue
+        if item[0] == 'exec':
+            exec(item[1], scope)
+        elif item[0] == 'eval':
+            yield str(eval(item[1], scope))
+        elif item[0] == 'inject':
+            if item[2]:
+                arg = eval(item[2], scope)
+            mscope = scope.copy()
+            mscope['arg'] = arg
+            yield from execute_macro(item[1], mscope, top)
+        elif top:
+            yield shlex.join(execute_macro(item[1], scope))
+        else:
+            yield 'push'
+            yield 'graphic-context'
+            yield from execute_macro(item[1], scope)
+            yield 'pop'
+            yield 'graphic-context'
 
-def dcirc(r, n, f, o=0):
-    s = 2*pi*r/n
-    return f'<< stroke-dashoffset {s*o} stroke-dasharray {s*f} {s*(1-f)} circle 0 0 0 {r} >>'
+class compile:
+    def __init__(self, f):
+        lex = shlex.shlex(f, posix=True)
+        lex.whitespace_split = True
+        self.body = compile_macro(lex, {})
 
-def arc(r, a, b):
-    a *= r*pi/180
-    b *= r*pi/180
-    return f'stroke-dasharray {b} {2*pi*r-b} stroke-dashoffset {a} circle 0 0 0 {r}'
+    def __call__(self, group):
+        return execute_macro(self.body, {'group': group}, True)
 
-@generator
-def outer():
-    yield 'translate 250 250 stroke white stroke-width 4'
-    for i in range(15):
-        o = random.uniform(0.1, 0.5)
-        r = 200 + 50 * 1.1 ** i
-        yield f'stroke-opacity {o} circle 0 0 0 {r}'
-
-bolt = lambda h: fr'''
-(
-    -size 50x500 canvas:none
-    -draw 'stroke rgba(255,255,255,0.35) line 25 0 25 500'
-    (
-        -seed {random.getrandbits(32)}
-        -size 1x{h} canvas:white +noise random
-        -filter triangle -resize 50x500!
-    )
-    -define compose:args=20x0
-    -compose displace -composite
-)
-'''
-
-script = fr'''
--seed 9452358
--fill none -stroke none -strokewidth 4
--font ./montserrat-bold.ttf
--gravity center
-
--size 500x500 -define gradient:angle=135
-gradient:rgb(300,255,255)-rgb(127,255,255)
-(
-    canvas:rgb(255,255,160)
-    -draw '
-    translate 250 250
-    << fill rgb(255,255,120) circle 0 0 0 250 >>
-    << fill rgb(255,255,100) circle 0 0 0 210 >>
-    << fill rgb(255,255,80) circle 0 0 0 170 >>
-    << fill rgb(255,255,60) circle 0 0 0 125 >>
-    << fill rgb(255,255,40) circle 0 0 0 80 >>
-    << stroke rgb(255,255,170) stroke-width 20 {dcirc(253,15,.8,.9)} >>
-    << stroke white {dcirc(230,12,.9,.4)} >>
-    '
-)
--set colorspace hsl
--compose multiply -composite
--colorspace srgb
-(
-    {bolt(20)}
-    {bolt(24)} -compose over -composite
-    {bolt(28)} -compose over -composite
-)
--size 500x500
-radial-gradient:white-none
--compose over -composite
--size 200x200
-radial-gradient:rgba(255,255,255,0.25)-none
--compose over -composite
-
--draw 'translate 250 250 fill white path "M 10,-60 -30,15 -5,10 -10,60 30,-15 5,-10 Z"'
--draw 'font-size 40 kerning 10 fill white text 0 120 "ELECTRIC"'
-
-(
-    -size 60x3 canvas:rgba(255,255,255,0)
-    -set colorspace gray
-    -channel A -attenuate 0.45 +noise random +channel
-    -set colorspace srgb
-    -define gradient:angle=0 gradient:rgba(255,255,255,0.25)-rgba(255,255,255,0.1)
-    -compose over -composite
-    -filter point -interpolate nearest-neighbor -virtual-pixel none
-    -define distort:viewport=500x500+0+0 -distort polar 353.553,270,250,250
-)
--compose over -composite
-'''
-
-script = (script
-    .replace('<<', 'push graphic-context')
-    .replace('>>', 'pop graphic-context'))
-
-################################################################################
+##############################################################################
+# Server
+##############################################################################
 
 page = br'''
 <!DOCTYPE html>
@@ -169,20 +174,16 @@ ws.onclose = () => {
 </html>
 '''
 
-def dev():
+def dev(host, port, group):
     import asyncio
     import html
     import logging
-    import optparse
-    import os
     import traceback
     from websockets.asyncio.server import broadcast, serve
     from websockets.datastructures import Headers
     from websockets.http11 import Response
 
     server = None
-    host = '127.0.0.1'
-    port = 5050
     image = None
 
     logging.basicConfig(
@@ -194,16 +195,17 @@ def dev():
 
     async def update():
         nonlocal image
-        with open(__file__, 'rb') as f: code = f.read()
-        scope = {'group': group}
-        exec(code, scope)
-        script = (scope['script'] + '\n-write png:-\n').encode('utf-8')
+        with open(input_file) as f:
+            generator = compile(f)
+        script = ' '.join(
+            shlex.quote(token) for token in
+            itertools.chain(generator(group), ['-write', 'png:-']))
         process = await asyncio.subprocess.create_subprocess_exec(
             'magick', '-script', '-',
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
-        (stdout, stderr) = await process.communicate(script)
+        (stdout, stderr) = await process.communicate(script.encode('utf-8'))
         if process.returncode != 0:
             raise Exception(stderr.decode('utf-8'))
         image = stdout
@@ -216,13 +218,11 @@ def dev():
                 await asyncio.sleep(0.3)
             sleep = True
             try:
-                mtime = os.stat(__file__).st_mtime_ns
+                mtime = os.stat(input_file).st_mtime_ns
                 if mtime == last_mtime:
                     continue
                 last_mtime = mtime
                 await update()
-            except FileNotFoundError:
-                pass
             except:
                 send(traceback.format_exc())
             else:
@@ -253,22 +253,9 @@ def dev():
     try: asyncio.run(main())
     except KeyboardInterrupt: pass
 
-def build():
-    import os
-    import shlex
-    import subprocess
-    if opts.output is None:
-        opts.output = os.path.join(group, 'folder.jpg')
-    subprocess.run(
-        ['magick', '-script', '-'],
-        input=(script + f'\n-write {shlex.quote(opts.output)}\n').encode('utf-8'),
-        check=True)
+##############################################################################
 
 if __name__ == '__main__':
-    import sys
-    if opts.dump:
-        sys.stdout.write(script)
-    elif opts.serve:
-        dev()
-    else:
-        build()
+    main()
+
+# vim:tw=78
