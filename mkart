@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+################################################################################
+# ------------------------------------------------------------------------------
+#   Electric Art
+# ------------------------------------------------------------------------------
+#
+#   Copyright (c) 2024-2025 Daniel Li
+#
+#   This software is available under the MIT License.
+#   This artwork is licensed under CC-BY-NC-SA 4.0.
+#
+#   Dependencies:
+#     - imagemagick <https://imagemagick.org>
+#
+#   Additional dependencies for dev server:
+#     - websockets <https://pypi.org/project/websockets/>
+#
+################################################################################
+
+GROUPS = ('core', 'extra')
+
+if __name__ == '__main__':
+    import optparse
+    parser = optparse.OptionParser()
+    parser.add_option('-o', '--output', metavar='FILE', help='output file')
+    parser.add_option('-s', '--serve', action='store_true', help='start dev server')
+    parser.add_option('--dump', action='store_true', help='dump script to stdout')
+    parser.add_option('--expose', dest='host', action='store_const', const='', help='listen on all interfaces')
+    opts, args = parser.parse_args()
+    if args: parser.error('too many arguments')
+    group = 'core'
+    del optparse, parser, args
+
+################################################################################
+
+from random import Random
+from math import sin, cos, pi
+
+random = Random('cassie is sus')
+generator = lambda f: '\n'.join(f())
+
+def polygon(n, r, o=0):
+    return ' '.join(str(r*f(2*(i-o)*pi/n)) for i in range(n) for f in (sin, cos))
+
+def dcirc(r, n, f, o=0):
+    s = 2*pi*r/n
+    return f'<< stroke-dashoffset {s*o} stroke-dasharray {s*f} {s*(1-f)} circle 0 0 0 {r} >>'
+
+def arc(r, a, b):
+    a *= r*pi/180
+    b *= r*pi/180
+    return f'stroke-dasharray {b} {2*pi*r-b} stroke-dashoffset {a} circle 0 0 0 {r}'
+
+@generator
+def outer():
+    yield 'translate 250 250 stroke white stroke-width 4'
+    for i in range(15):
+        o = random.uniform(0.1, 0.5)
+        r = 200 + 50 * 1.1 ** i
+        yield f'stroke-opacity {o} circle 0 0 0 {r}'
+
+bolt = lambda h: fr'''
+(
+    -size 50x500 canvas:none
+    -draw 'stroke rgba(255,255,255,0.35) line 25 0 25 500'
+    (
+        -seed {random.getrandbits(32)}
+        -size 1x{h} canvas:white +noise random
+        -filter triangle -resize 50x500!
+    )
+    -define compose:args=20x0
+    -compose displace -composite
+)
+'''
+
+script = fr'''
+-seed 9452358
+-fill none -stroke none -strokewidth 4
+-font ./montserrat-bold.ttf
+-gravity center
+
+-size 500x500 -define gradient:angle=135
+gradient:rgb(300,255,255)-rgb(127,255,255)
+(
+    canvas:rgb(255,255,160)
+    -draw '
+    translate 250 250
+    << fill rgb(255,255,120) circle 0 0 0 250 >>
+    << fill rgb(255,255,100) circle 0 0 0 210 >>
+    << fill rgb(255,255,80) circle 0 0 0 170 >>
+    << fill rgb(255,255,60) circle 0 0 0 125 >>
+    << fill rgb(255,255,40) circle 0 0 0 80 >>
+    << stroke rgb(255,255,170) stroke-width 20 {dcirc(253,15,.8,.9)} >>
+    << stroke white {dcirc(230,12,.9,.4)} >>
+    '
+)
+-set colorspace hsl
+-compose multiply -composite
+-colorspace srgb
+(
+    {bolt(20)}
+    {bolt(24)} -compose over -composite
+    {bolt(28)} -compose over -composite
+)
+-size 500x500
+radial-gradient:white-none
+-compose over -composite
+-size 200x200
+radial-gradient:rgba(255,255,255,0.25)-none
+-compose over -composite
+
+-draw 'translate 250 250 fill white path "M 10,-60 -30,15 -5,10 -10,60 30,-15 5,-10 Z"'
+-draw 'font-size 40 kerning 10 fill white text 0 120 "ELECTRIC"'
+
+(
+    -size 60x3 canvas:rgba(255,255,255,0)
+    -set colorspace gray
+    -channel A -attenuate 0.45 +noise random +channel
+    -set colorspace srgb
+    -define gradient:angle=0 gradient:rgba(255,255,255,0.25)-rgba(255,255,255,0.1)
+    -compose over -composite
+    -filter point -interpolate nearest-neighbor -virtual-pixel none
+    -define distort:viewport=500x500+0+0 -distort polar 353.553,270,250,250
+)
+-compose over -composite
+'''
+
+script = (script
+    .replace('<<', 'push graphic-context')
+    .replace('>>', 'pop graphic-context'))
+
+################################################################################
+
+page = br'''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mkart</title>
+  <link rel="icon" href="data:,">
+<style>
+body { margin: 1rem; }
+img { display: block; }
+</style>
+</head>
+<body>
+<script>
+const image = document.createElement('img');
+document.body.append(image);
+const ws = new WebSocket('/ws');
+ws.onmessage = ({ data }) => {
+  if (data instanceof Blob) {
+    console.log('Updating');
+    URL.revokeObjectURL(image.src);
+    image.src = URL.createObjectURL(data.slice(0, data.size, 'image/png'));
+  } else {
+    console.error(data);
+  }
+};
+ws.onclose = () => {
+  console.log('Attempting to reconnect...');
+  fetch('/ok').then(
+    () => location.reload(),
+    () => setTimeout(ws.onclose, 1000));
+};
+</script>
+</body>
+</html>
+'''
+
+def dev():
+    import asyncio
+    import html
+    import logging
+    import optparse
+    import os
+    import traceback
+    from websockets.asyncio.server import broadcast, serve
+    from websockets.datastructures import Headers
+    from websockets.http11 import Response
+
+    server = None
+    host = '127.0.0.1'
+    port = 5050
+    image = None
+
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s',
+        level=logging.INFO)
+
+    def send(message):
+        broadcast(server.connections, message)
+
+    async def update():
+        nonlocal image
+        with open(__file__, 'rb') as f: code = f.read()
+        scope = {'group': group}
+        exec(code, scope)
+        script = (scope['script'] + '\n-write png:-\n').encode('utf-8')
+        process = await asyncio.subprocess.create_subprocess_exec(
+            'magick', '-script', '-',
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+        (stdout, stderr) = await process.communicate(script)
+        if process.returncode != 0:
+            raise Exception(stderr.decode('utf-8'))
+        image = stdout
+
+    async def watch():
+        last_mtime = None
+        sleep = False
+        while True:
+            if sleep:
+                await asyncio.sleep(0.3)
+            sleep = True
+            try:
+                mtime = os.stat(__file__).st_mtime_ns
+                if mtime == last_mtime:
+                    continue
+                last_mtime = mtime
+                await update()
+            except FileNotFoundError:
+                pass
+            except:
+                send(traceback.format_exc())
+            else:
+                send(image)
+
+    async def handler(conn):
+        if image is not None:
+            await conn.send(image)
+        await conn.wait_closed()
+
+    def process_request(conn, req):
+        if req.path == '/':
+            return Response(200, 'OK', Headers({ 'content-type': 'text/html' }), page)
+        elif req.path == '/ws':
+            return None
+        else:
+            return Response(404, 'Not Found', Headers({ 'content-type': 'text/plain' }), b'Not Found')
+
+    async def main():
+        nonlocal server
+        server = await serve(
+            handler, host, port,
+            process_request=process_request)
+        await asyncio.gather(
+            server.serve_forever(),
+            watch())
+
+    try: asyncio.run(main())
+    except KeyboardInterrupt: pass
+
+def build():
+    import os
+    import shlex
+    import subprocess
+    if opts.output is None:
+        opts.output = os.path.join(group, 'folder.jpg')
+    subprocess.run(
+        ['magick', '-script', '-'],
+        input=(script + f'\n-write {shlex.quote(opts.output)}\n').encode('utf-8'),
+        check=True)
+
+if __name__ == '__main__':
+    import sys
+    if opts.dump:
+        sys.stdout.write(script)
+    elif opts.serve:
+        dev()
+    else:
+        build()
