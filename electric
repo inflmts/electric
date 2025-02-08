@@ -48,7 +48,7 @@ default_root = os.path.dirname(os.path.realpath(__file__))
 # The list of valid groups.
 GROUPS = ('core', 'extra')
 
-song_file_regex = re.compile(r'.*\.([0-9a-f]{12})([0-9a-f]{4})\.mp3')
+song_file_regex = re.compile(r'[0-9a-z\.-]*\.[0-9a-f]{16}\.mp3')
 import_file_regex = re.compile(r'([a-z]+)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.([0-9a-z]+(?:-[0-9a-z]+)*)\.mp3')
 replace_file_regex = re.compile(r'\+(\d+)\.mp3')
 
@@ -451,8 +451,11 @@ def list_local(root):
     for group in GROUPS:
         for file in os.listdir(os.path.join(root, group)):
             file = os.path.normcase(file)
-            if not file.startswith('.') and (mat := song_file_regex.fullmatch(file)):
-                paths.append(f'{group}/{file}')
+            path = f'{group}/{file}'
+            if song_file_regex.fullmatch(file):
+                paths.append(path)
+            elif file != 'folder.jpg':
+                warn(f'ignoring file {path!r}')
     return paths
 
 def write_tdata(file, tdata):
@@ -577,7 +580,7 @@ class AdbBackend:
             stdout=subprocess.PIPE,
             text=True, check=True).stdout
         return [path for path in output.splitlines()
-                     if song_file_regex.match(path)]
+                     if song_file_regex.fullmatch(path.partition('/')[2])]
 
     def push(self, root, transfers, renames, prunes):
         for src, dest in transfers:
