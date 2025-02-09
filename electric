@@ -219,7 +219,7 @@ class Catalog:
 
     def add(self, id, group, artist, title, date, mhash):
         if id != self.nextid:
-            raise CatalogError(f'attempted to add id {id}, expected {self.nextid}')
+            raise CatalogError(f'Attempted to add id {id}, expected {self.nextid}')
         song = Song(id, group, artist, title, date, mhash)
         self._songs.append(song)
         return song
@@ -257,7 +257,7 @@ def read_catalog(f, file=None):
     lineno = 0
 
     def fail(message):
-        raise CatalogError(f'line {lineno}: {message}')
+        raise CatalogError(f'Failed to load catalog: line {lineno}: {message}')
 
     for line in f:
         # increment line number before the loop to catch continue
@@ -415,23 +415,31 @@ class Importer:
         self.catalog = catalog
         self.import_file = os.path.join(self.root, 'import.mp3')
 
-    def prepare(self, url):
-        # Normalize using ffmpeg. This is done to make sure it's actually
-        # a mp3, and to get a xing/info header if there wasn't one already
-        # so ffprobe doesn't complain.
-        subprocess.run(
-            ['ffmpeg', '-y',
-             '-hide_banner',
-             '-loglevel', 'warning',
-             '-stats',
-             '-i', url,
-             '-map', '0:a:0',
-             '-f', 'mp3',
-             '-c', 'copy',
-             '-aq', '2',
-             '-id3v2_version', '0', # we handle metadata ourselves
-             self.import_file],
-            check=True)
+    def get(self, url):
+        open(self.import_file, 'xb').close()
+        try:
+            # Normalize using ffmpeg. This does a few things:
+            #
+            #   - makes sure it's actually a mp3
+            #   - removes the id3 header so we can add our own
+            #   - gets a xing/info header so ffprobe doesn't complain
+            #
+            subprocess.run(
+                ['ffmpeg', '-y',
+                 '-hide_banner',
+                 '-loglevel', 'warning',
+                 '-stats',
+                 '-i', url,
+                 '-map', '0:a:0',
+                 '-f', 'mp3',
+                 '-c', 'copy',
+                 '-aq', '2',
+                 '-id3v2_version', '0', # we handle metadata ourselves
+                 self.import_file],
+                check=True)
+        except:
+            os.remove(self.import_file)
+            raise
 
     def commit(self, song, commit_message):
         srcfile = self.import_file
@@ -583,11 +591,7 @@ class Context:
 
     def load_catalog(self):
         with open(self.catalog_file) as f:
-            try:
-                return read_catalog(f, self.catalog_file)
-            except CatalogError as e:
-                err(f'catalog: {e}')
-                sys.exit(1)
+            return read_catalog(f, self.catalog_file)
 
     def create_backend(self, param):
         name = 'file'
@@ -608,20 +612,36 @@ def main(ctx, root):
     ctx.obj = Context(root)
 
 #-----------------------------------------------------------------------------
-# Command: prepare
+# Command: get
 #-----------------------------------------------------------------------------
 
-@main.command('prepare')
-@click.option('-o', '--open', 'launch', is_flag=True, help='open prepared file')
+@main.command('get')
+@click.option('--no-open', is_flag=True, help='don\'t open prepared file')
 @click.argument('url')
 @click.pass_obj
-def _(context, launch, url):
+def _(context, no_open, url):
     """Prepare a song for import."""
     catalog = context.load_catalog()
     importer = Importer(context.root, catalog)
-    importer.prepare(url)
-    if launch:
+    if os.path.exists(importer.import_file):
+        die(f'import in progress')
+    importer.get(url)
+    if not no_open:
         click.launch(importer.import_file)
+
+#-----------------------------------------------------------------------------
+# Command: open
+#-----------------------------------------------------------------------------
+
+@main.command('open')
+@click.pass_obj
+def _(context):
+    """Open the prepared file."""
+    catalog = context.load_catalog()
+    importer = Importer(context.root, catalog)
+    if not os.path.exists(importer.import_file):
+        die(f'nothing to import')
+    click.launch(importer.import_file)
 
 #-----------------------------------------------------------------------------
 # Command: add
@@ -796,6 +816,9 @@ def _(context, file):
 #-----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    main(help_option_names=['-h', '--help'])
+    try:
+        main(help_option_names=['-h', '--help'])
+    except (CatalogError, subprocess.CalledProcessError) as e:
+        die(e)
 
 # vim:tw=78
