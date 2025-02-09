@@ -346,13 +346,13 @@ class File:
         self.thash = path[-8:-4]
         self.preserve = False # currently not used
 
-def get_update_operations(catalog, paths, source=None, allow_retag=True):
+def plan_update(catalog, paths, source=None, *, prune=False):
     """
     Determine the operations required to satisfy the catalog given an iterable
-    of existing paths and an optional external source to retrieve missing
-    files from. Returns a tuple of three lists:
+    of existing paths and an optional list of paths on a source to retrieve
+    missing files from. Returns a tuple with three items:
 
-        transfers: list of (src, dest) or None if no `source` was provided
+        transfers: list of (src, dest), None if source is None
         renames: list of (src, dest, tdata), tdata may be None
         prunes: list of paths to delete
     """
@@ -384,15 +384,15 @@ def get_update_operations(catalog, paths, source=None, allow_retag=True):
             renames.append((file.path, song.path, song.tdata if retag else None))
             break
         else:
+            found = False
             if source is not None:
                 for path in source:
                     if path == song.path:
                         msg(f'\033[1;36m** transfer:\033[0m {song}')
                         transfers.append((path, song.path))
+                        found = True
                         break
-                else:
-                    warn(f'unable to find source for {song}')
-            else:
+            if not found:
                 warn(f'unable to find source for {song}')
 
     # find files to prune
@@ -400,10 +400,10 @@ def get_update_operations(catalog, paths, source=None, allow_retag=True):
     for file in files.values():
         if not file.preserve:
             if prune:
-                msg(f'\033[1;31prune:\033[0m {file.path}')
+                msg(f'\033[1;31m** prune:\033[0m {file.path}')
                 prunes.append(file.path)
             else:
-                warn(f'orphan: {file.path}')
+                warn(f'extraneous file: {file.path}')
 
     return transfers, renames, prunes
 
@@ -427,7 +427,14 @@ def write_tdata(file, tdata):
         assert f.tell() == 10
         f.write(tdata[10:])
 
-def execute_local_operations(root, renames, prunes):
+def execute_local_transfer(srcroot, destroot, transfers, verb):
+    for src, dest in transfers:
+        msg(f'{verb} {src} -> {dest}')
+        srcfile = os.path.join(srcroot, src)
+        destfile = os.path.join(destroot, dest)
+        shutil.copyfile(srcfile, destfile)
+
+def execute_update(root, renames, prunes):
     # process renames/retags
     for src, dest, tdata in renames:
         msg(f'Renaming {src} -> {dest}')
@@ -472,6 +479,21 @@ def interactive_import_file(root, catalog, queue_dir, file):
             song = catalog.register(group, artist, title, None)
             commit_message = f'catalog: add {song.id}'
             break
+        if args[0] == 'r':
+            if len(args) != 2:
+                err('usage: r <id>')
+                continue
+            try:
+                id = int(args[1])
+            except ValueError:
+                err(f'invalid id {args[1]!r}')
+                continue
+            if id not in catalog:
+                err(f'no such song: {id}')
+                continue
+            song = catalog[id]
+            commit_message = f'catalog: replace {song.id}'
+            break
         if args[0] == 's':
             return
         err(f'unrecognized command {args[0]!r}')
@@ -492,7 +514,8 @@ def interactive_import_file(root, catalog, queue_dir, file):
              '-i', srcfile,
              '-f', 'mp3',
              '-c', 'libmp3lame',
-             '-id3v2_version', '0',
+             '-q', '2',
+             '-id3v2_version', '0', # we handle metadata ourselves
              recfile],
             check=True)
 
@@ -601,19 +624,11 @@ class FileBackend:
         return list_local(self.root)
 
     def push(self, root, transfers, renames, prunes):
-        for src, dest in transfers:
-            msg(f'Pushing {src} -> {dest}')
-            srcfile = os.path.join(root, src)
-            destfile = os.path.join(self.root, dest)
-            shutil.copyfile(srcfile, destfile)
-        execute_local_operations(self.root, renames, prunes)
+        execute_local_transfer(root, self.root, transfers, 'Pushing')
+        execute_update(self.root, renames, prunes)
 
     def pull(self, root, transfers):
-        for src, dest in transfers:
-            msg(f'Pulling {src} -> {dest}')
-            srcfile = os.path.join(self.root, src)
-            destfile = os.path.join(root, dest)
-            shutil.copyfile(srcfile, destfile)
+        execute_local_transfer(self.root, root, transfers, 'Pulling')
 
 @backend('adb')
 class AdbBackend:
@@ -642,12 +657,13 @@ class AdbBackend:
 
         commands = [f'set -eC\ncd {shlex.quote(self.root)}\n']
         for src, dest, tdata in renames:
-            assert tdata is None
             commands.append(f'echo >&2 "Renaming {src} -> {dest}"\n')
+            if tdata is not None:
+                escaped = ''.join(f'\\x{b:02x}' for b in tdata)
+                commands.append(f'echo -ne \'{escaped}\' 1<> {src}')
             commands.append(f'mv -nT {src} {dest}\n')
         if prunes:
-            commands.append(f'echo >&2 "Pruning {len(prunes)} files..."\n'
-                            f'rm {" ".join(prunes)}\n')
+            commands.append(f'rm -v {" ".join(prunes)}\n')
 
         subprocess.run(
             ['adb', 'shell'],
@@ -709,9 +725,8 @@ def main(ctx, root):
 def update(context, dry_run, yes, prune, no_import, remote):
     """Update the music library.
 
-    Rename, retag, and optionally pull files from a remote to match the
-    catalog. In addition, look for files in the queue directory to to import
-    as new songs or replace existing songs.
+    Rename and retag files to match the catalog. In addition, look for files
+    in the queue directory to add to the library or replace existing songs.
     """
     root = context.root
     catalog = context.load_catalog()
@@ -720,23 +735,18 @@ def update(context, dry_run, yes, prune, no_import, remote):
         interactive_import(root, catalog, os.path.join(root, 'queue'))
 
     files = list_local(root)
+    remote_files = None
     if remote is not None:
         backend = context.create_backend(remote)
         remote_files = backend.list()
-    else:
-        remote_files = None
-
-    transfers, renames, prunes = get_update_operations(catalog, files, source=remote_files)
-
+    transfers, renames, prunes = plan_update(catalog, files, remote_files, prune=prune)
     if dry_run or not (transfers or renames or prunes):
         return
-
     if not (yes or confirm('Proceed [Y/n]? ', True)):
         sys.exit(2)
-
     if transfers:
-        backend.pull(transfers)
-    execute_local_operations(root, renames, prunes)
+        backend.pull(root, transfers)
+    execute_update(root, renames, prunes)
 
 #-----------------------------------------------------------------------------
 # Command: push
@@ -754,16 +764,13 @@ def push(context, dry_run, yes, prune, remote):
     catalog = context.load_catalog()
     backend = context.create_backend(remote)
 
-    local_files = list_local(root)
+    files = list_local(root)
     remote_files = backend.list()
-    transfers, renames, prunes = get_update_operations(catalog, remote_files, source=local_files)
-
+    transfers, renames, prunes = plan_update(catalog, remote_files, files, prune=prune)
     if dry_run or not (transfers or renames or prunes):
         return
-
     if not (yes or confirm('Proceed [Y/n]? ', True)):
         sys.exit(2)
-
     backend.push(root, transfers, renames, prunes)
 
 #-----------------------------------------------------------------------------
