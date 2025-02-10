@@ -31,14 +31,11 @@ from collections import Counter, namedtuple
 import datetime
 import hashlib
 import itertools
-import operator
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import zlib
 
 # output newline on all platforms
@@ -416,24 +413,17 @@ class Importer:
         self.import_file = os.path.join(self.root, 'import.mp3')
 
     def get(self, url):
+        # make sure the import file doesn't exist
         open(self.import_file, 'xb').close()
         try:
-            # Normalize using ffmpeg. This does a few things:
-            #
-            #   - makes sure it's actually a mp3
-            #   - removes the id3 header so we can add our own
-            #   - gets a xing/info header so ffprobe doesn't complain
-            #
             subprocess.run(
                 ['ffmpeg', '-y',
                  '-hide_banner',
                  '-loglevel', 'warning',
                  '-stats',
                  '-i', url,
-                 '-map', '0:a:0',
                  '-f', 'mp3',
                  '-c', 'copy',
-                 '-aq', '2',
                  '-id3v2_version', '0', # we handle metadata ourselves
                  self.import_file],
                 check=True)
@@ -443,29 +433,43 @@ class Importer:
 
     def commit(self, song, commit_message):
         srcfile = self.import_file
-        tmpdir = os.path.join(self.root, song.group)
+        tmpfile = os.path.join(self.root, 'import~1.mp3')
+        finfile = os.path.join(self.root, 'import~2.mp3')
 
-        with open(srcfile, 'rb') as srcf:
-            tmpfd, tmpfile = tempfile.mkstemp(
-                prefix='import-',
-                suffix='~.mp3',
-                dir=tmpdir)
+        # Normalize using ffmpeg. This does a few things:
+        #
+        #   - makes sure it's actually a mp3
+        #   - removes the id3 header so we can add our own
+        #   - gets a xing/info header so ffprobe doesn't complain
+        #
+        subprocess.run(
+            ['ffmpeg', '-y',
+             '-hide_banner',
+             '-loglevel', 'warning',
+             '-stats',
+             '-i', srcfile,
+             '-f', 'mp3',
+             '-c', 'copy',
+             '-id3v2_version', '0', # we handle metadata ourselves
+             tmpfile],
+            check=True)
 
-            with open(tmpfd, 'wb') as tmpf:
-                # write metadata and calculate mhash
-                tmpf.write(song.tdata)
-                mhash = copy_and_sha256(srcf, tmpf)
+        with (open(tmpfile, 'rb') as tmpf, open(finfile, 'wb') as finf):
+            # write metadata and calculate mhash
+            finf.write(song.tdata)
+            mhash = copy_and_sha256(tmpf, finf)
 
         # the correct `destfile` is only known after calculating the mhash
         song.mhash = mhash
         destfile = os.path.join(self.root, song.path)
-        safe_rename(tmpfile, destfile)
+        safe_rename(finfile, destfile)
 
         # save catalog
         self.catalog.save()
 
         # cleanup
         os.remove(srcfile)
+        os.remove(tmpfile)
 
         # commit
         subprocess.run(
@@ -546,7 +550,7 @@ class AdbBackend:
     def list(self):
         output = subprocess.run(
             ['adb', 'shell'],
-            input=f'cd {shlex.quote(self.root)} && '
+            input=f'cd \'self.root\' && '
                   f'find {" ".join(GROUPS)} -mindepth 1 -maxdepth 1 -name "*.mp3"',
             stdout=subprocess.PIPE,
             text=True, check=True).stdout
@@ -559,7 +563,7 @@ class AdbBackend:
             srcfile = os.path.join(root, src)
             subprocess.run(['adb', 'push', srcfile, f'{self.root}/{dest}'], check=True)
 
-        commands = [f'set -eC\ncd {shlex.quote(self.root)}\n']
+        commands = [f'set -eC\ncd \'self.root\'\n']
         for src, dest, tdata in renames:
             commands.append(f'echo >&2 "Renaming {src} -> {dest}"\n')
             if tdata is not None:
@@ -616,17 +620,17 @@ def main(ctx, root):
 #-----------------------------------------------------------------------------
 
 @main.command('get')
-@click.option('--no-open', is_flag=True, help='don\'t open prepared file')
+@click.option('-o', '--open', 'launch', is_flag=True, help='open downloaded file')
 @click.argument('url')
 @click.pass_obj
-def _(context, no_open, url):
-    """Prepare a song for import."""
+def _(context, launch, url):
+    """Download a song for import."""
     catalog = context.load_catalog()
     importer = Importer(context.root, catalog)
     if os.path.exists(importer.import_file):
         die(f'import in progress')
     importer.get(url)
-    if not no_open:
+    if launch:
         click.launch(importer.import_file)
 
 #-----------------------------------------------------------------------------
@@ -636,7 +640,7 @@ def _(context, no_open, url):
 @main.command('open')
 @click.pass_obj
 def _(context):
-    """Open the prepared file."""
+    """Open the file to be imported."""
     catalog = context.load_catalog()
     importer = Importer(context.root, catalog)
     if not os.path.exists(importer.import_file):
