@@ -550,7 +550,7 @@ class AdbBackend:
     def list(self):
         output = subprocess.run(
             ['adb', 'shell'],
-            input=f'cd \'self.root\' && '
+            input=f'cd \'{self.root}\' && '
                   f'find {" ".join(GROUPS)} -mindepth 1 -maxdepth 1 -name "*.mp3"',
             stdout=subprocess.PIPE,
             text=True, check=True).stdout
@@ -563,7 +563,7 @@ class AdbBackend:
             srcfile = os.path.join(root, src)
             subprocess.run(['adb', 'push', srcfile, f'{self.root}/{dest}'], check=True)
 
-        commands = [f'set -eC\ncd \'self.root\'\n']
+        commands = [f'set -eC\ncd \'{self.root}\'\n']
         for src, dest, tdata in renames:
             commands.append(f'echo >&2 "Renaming {src} -> {dest}"\n')
             if tdata is not None:
