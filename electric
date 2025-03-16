@@ -582,7 +582,7 @@ class AdbBackend:
         for src, dest in transfers:
             msg(f'Pulling {src} -> {dest}')
             destfile = os.path.join(root, dest)
-            subprocess.run(['adb', 'pull', src, destfile], check=True)
+            subprocess.run(['adb', 'pull', f'{self.root}/{src}', destfile], check=True)
 
 ##############################################################################
 # Command-Line Parsing
