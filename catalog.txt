@@ -400,3 +400,4 @@
 400 core au5 the-way-to-infinity 2025-05-01 ca72e116a3666b34381d33367ff3e2ad0fcbb9c28246b89f7390ef83d86a4f9d
 401 core teminite ghost-ship 2025-05-01 b2a94240e92b42f33a652a1ee03aebf48ef00883fbc982f33a40cdad84ca3234
 402 core mameyudoufu ancient-tech 2025-05-01 e2410b899b2c036be8eca1b25e076c55572a4dee1eb6fa82f41f3bbcfd1bab7e
+403 core teminite everytime-i-look-into-the-sky 2025-05-01 fd14f19734cb394b8823376f60c3259bad1bf27ddf15d5c5a49c5be8794e3afa
