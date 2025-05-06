@@ -448,6 +448,7 @@ class Importer:
              '-loglevel', 'warning',
              '-stats',
              '-i', srcfile,
+             '-map', '0:a', # select audio only, remove cover art
              '-f', 'mp3',
              '-c', 'copy',
              '-id3v2_version', '0', # we handle metadata ourselves
