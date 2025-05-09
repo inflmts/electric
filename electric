@@ -648,13 +648,12 @@ def _(context, dry_run, yes, prune, remotes):
 
         # find remote files to prune
         for file in remote.files:
-            if file not in catalog_files:
-                if prune:
-                    msg(f'\033[1;31mprune:\033[0m {file}')
-                    remote.prunes.append(file)
-                    has_actions = True
-                else:
-                    warn(f'extraneous file: {file}')
+            if prune:
+                msg(f'\033[1;31mprune:\033[0m {file}')
+                remote.prunes.append(file)
+                has_actions = True
+            else:
+                warn(f'extraneous file: {file}')
 
     if dry_run or not has_actions:
         return
