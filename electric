@@ -163,12 +163,12 @@ class Song:
         self.tags = SongTags(
             title.upper().replace('-', ' '),
             artist.upper().replace('-', ' '),
-            f'E{self.id}')
+            f'E{self.id:04}')
         self.tdata = id3_encode(self.tags)
         self.thash = '%04x' % (zlib.crc32(self.tdata) >> 16 & 0xffff)
 
     def __str__(self):
-        return f'E{self.id} ({self.artist}.{self.title})'
+        return f'E{self.id:04} ({self.artist}.{self.title})'
 
     @property
     def mabbrev(self):
