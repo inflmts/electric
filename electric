@@ -154,6 +154,7 @@ class Song:
             '-map', '0:a', # select audio only, remove cover art
             '-f', 'mp3',
             '-c', 'copy',
+            '-map_metadata', '-1',
             '-metadata', f'title={self.title_tag}',
             '-metadata', f'artist={self.artist_tag}',
             '-metadata', f'album={self.album_tag}',
@@ -461,7 +462,6 @@ def _(context, parser, args):
     opts, args = parser.parse_args(args)
 
     catalog = context.load_catalog()
-    has_actions = False
 
     #-- Import ---------------------------------------------------------------
 
@@ -486,7 +486,6 @@ def _(context, parser, args):
                         warn(f'song is already imported: {song}')
                         continue
                     import_files.append((song, entry.path))
-                    has_actions = True
         except FileNotFoundError:
             pass
 
@@ -514,6 +513,7 @@ def _(context, parser, args):
         for file in os.listdir(context.music_dir)
         if file.endswith('.mp3'))
 
+    has_actions = False
     prunes = []
 
     for song in catalog:
