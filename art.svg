@@ -7,7 +7,7 @@ Copyright (c) 2024-2025 Daniel Li
 
 Updated 08/15/2025
 
-This artwork is licensed under CC-BY-NC-SA 4.0.
+This artwork is licensed under CC-BY-SA 4.0.
 -->
 
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -30,7 +30,7 @@ This artwork is licensed under CC-BY-NC-SA 4.0.
     </pattern>
     <radialGradient id="tile-gradient" r=".707">
       <stop offset=".5" stop-color="black" />
-      <stop offset=".7"  stop-color="white" />
+      <stop offset=".7" stop-color="white" />
     </radialGradient>
     <mask id="tile-mask">
       <rect x="-250" y="-250" width="500" height="500"
