@@ -819,10 +819,10 @@ def parser_error(message):
 def main():
     import optparse
     parser = optparse.OptionParser(usage='%prog [-ic] [options] [remote...]')
-    parser.add_option('-i', '--import', action='store_true', dest='do_import', help='import new music')
     parser.add_option('-c', '--check', action='store_true', help='verify file integrity')
     parser.add_option('-n', '--dry-run', action='store_true', help='do nothing, only show what would happen')
     parser.add_option('-y', '--yes', action='store_true', help='do not prompt for confirmation')
+    parser.add_option('--no-import', action='store_true', help='do not import new music')
     parser.add_option('--prune', action='store_true', help='prune extraneous music files')
     parser.add_option('--commit', action='store_true', help='commit catalog changes')
     parser.add_option('--dump', action='store_true', help='dump catalog to stdout')
@@ -837,7 +837,7 @@ def main():
         commit=opts.commit
     )
 
-    if opts.do_import:
+    if not opts.no_import:
         import_queue(context)
 
     backends = [context.create_backend(arg) for arg in args]
