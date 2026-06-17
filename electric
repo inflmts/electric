@@ -24,7 +24,6 @@
 #
 ##############################################################################
 
-import datetime
 import os
 import re
 import sys
@@ -37,9 +36,9 @@ sys.stderr.reconfigure(newline='\n')
 default_root = os.path.dirname(os.path.realpath(__file__))
 
 id_regex = re.compile(r'[1-9][0-9]*')
-date_regex = re.compile(r'([0-9]{4})-([0-9]{2})-([0-9]{2})')
+date_regex = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 artist_regex = re.compile(r'[0-9a-z]+(?:-[0-9a-z]+)*')
-title_regex = artist_regex
+title_regex = re.compile(r'[#:0-9a-z]+(?:-[0-9a-z]+)*')
 mhash_regex = re.compile(r'[0-9a-f]{64}')
 file_regex = re.compile(r'.*[/\.]([0-9a-f]{12})([0-9a-f]{4})?\.mp3')
 
@@ -163,9 +162,11 @@ class Song:
         self.tdata = tdata = id3_encode(self.title_tag, self.artist_tag, self.album_tag)
         self.thash = thash = f'{zlib.crc32(tdata) >> 16:04x}'
 
+        title_escaped = title.replace('#', '').replace(':', '')
+
         if mhash is not None:
             self.mabbrev = mabbrev = mhash[:12]
-            self.file = f'core/{id:04}.{",".join(artists)}.{title}.{mabbrev}{thash}.mp3'
+            self.file = f'core/{id:04}.{",".join(artists)}.{title_escaped}.{mabbrev}{thash}.mp3'
         else:
             self.mabbrev = None
             self.file = None
@@ -175,7 +176,7 @@ class Song:
 
     def write(self, f):
         id = self.id
-        date = self.date.strftime('%Y-%m-%d')
+        date = self.date
         artists = ','.join(self.artists)
         title = self.title
         mhash = '-' if self.mhash is None else self.mhash
@@ -227,8 +228,9 @@ class Catalog:
         return song
 
     def register(self, artists, title, mhash):
+        from time import strftime
         id = len(self._songs) + 1
-        date = datetime.date.today()
+        date = strftime('%Y-%m-%d')
         return self.add(id, date, artists, title, mhash)
 
     def replace(self, id, date, artists, title, mhash):
@@ -284,12 +286,10 @@ class Catalog:
         id = int(id)
 
         if date == '-':
-            date = datetime.date.today()
-        else:
-            if not (match := date_regex.fullmatch(date)):
-                raise CatalogError(f'Invalid date {date!r}')
-            y, m, d = match.groups()
-            date = datetime.date(int(y), int(m), int(d))
+            from time import strftime
+            date = strftime('%Y-%m-%d')
+        elif not date_regex.fullmatch(date):
+            raise CatalogError(f'Invalid date {date!r}')
 
         artists = artist.split(',')
         for artist in artists:
